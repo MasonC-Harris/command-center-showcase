@@ -1,0 +1,22 @@
+# Dependencies and build output
+node_modules/
+out/
+dist/
+*.log*
+.eslintcache
+
+# Secrets: OAuth client files, tokens, API keys (tokens live in the Windows credential store)
+.env
+.env.*
+!.env.example
+client_secret*.json
+credentials*.json
+
+# Local data
+*.db
+*.db-shm
+*.db-wal
+
+# OS / editor
+.DS_Store
+Thumbs.db
