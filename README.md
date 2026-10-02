@@ -63,4 +63,4 @@ Set `CC_USER_DATA` to use a separate data folder, for example when trying the de
 
 ## Status
 
-A personal project, built for one user. Not packaged for general release.
+A personal project I built for myself, in under 24 hours. Not packaged for general release.
