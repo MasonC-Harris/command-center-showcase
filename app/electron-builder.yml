@@ -47,3 +47,12 @@ appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
 publish: null
+# Hardening: the app binary can't be run as plain Node, can't be opened with a Node debugger,
+# ignores NODE_OPTIONS, and only loads its own integrity-checked app.asar.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableCookieEncryption: true
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true

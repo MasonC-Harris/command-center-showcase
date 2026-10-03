@@ -1,6 +1,7 @@
 import type { EmailBody } from '../shared/types'
 import { getDb } from './db'
 import { googleGet } from './google/http'
+import { icloudBody } from './icloud/mail'
 import { GRAPH, graphGet } from './microsoft/graph'
 
 // Message bodies are fetched only when the user opens an email and are never written to SQLite.
@@ -35,7 +36,9 @@ export async function getEmailBody(emailId: string): Promise<EmailBody> {
   const body =
     row.provider === 'google'
       ? await gmailBody(row.account_id, row.body_ref)
-      : await outlookBody(row.account_id, row.body_ref)
+      : row.provider === 'icloud'
+        ? await icloudBody(row.account_id, row.body_ref)
+        : await outlookBody(row.account_id, row.body_ref)
   return remember(emailId, body)
 }
 

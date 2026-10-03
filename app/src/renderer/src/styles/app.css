@@ -2185,3 +2185,99 @@ button.link {
 .task-delete:focus-visible {
   opacity: 1;
 }
+
+/* ---------- API usage ---------- */
+
+.api-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.api-usage:first-child {
+  border-top: none;
+}
+
+.api-usage-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.api-usage-head > :nth-child(2) {
+  margin-left: auto;
+}
+
+.api-balance {
+  font-size: 15px;
+  color: var(--text);
+}
+
+.api-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  font-size: 11px;
+}
+
+.api-cost {
+  font-size: 15px;
+  color: var(--text);
+  margin: 2px 0;
+}
+
+.api-usage-sub {
+  font-size: 11px;
+}
+
+.api-balance-editor .text-input {
+  width: 260px;
+}
+
+.finance-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ---------- Balances ---------- */
+
+.balance-total {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 4px 14px 10px;
+}
+
+.balance-total-amount {
+  font-size: 24px;
+  color: var(--text);
+}
+
+.balance-row {
+  cursor: pointer;
+}
+
+.balance-amount {
+  align-self: center;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.balance-input {
+  width: 140px;
+}
+
+.icloud-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+}
+
+.icloud-form .text-input {
+  width: 240px;
+}

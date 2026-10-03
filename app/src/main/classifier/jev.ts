@@ -1,4 +1,5 @@
 import type { Category, Priority } from '../../shared/types'
+import { recordUsage } from '../apiUsage'
 
 // Hosted Jev (TypeSafe System One). One request per email: the email is the `state`, and four
 // typed questions are evaluated against it in parallel.
@@ -48,11 +49,13 @@ const QUESTIONS = {
     type: 'choice',
     instructions: 'What is this email mainly about?',
     criteria: {
-      bills: 'Bills, payments, invoices, subscriptions, banking statements',
+      bills:
+        'Money the recipient actually owes, paid or received: bills, invoices, payment confirmations, subscription charges, banking statements. Not offers, gift cards, rewards or invitations to subscribe or upgrade',
       work: 'Work, jobs, recruiting, professional networking, coding and developer tools',
       school: 'Classes, professors, university administration, coursework',
       personal: 'Friends, family, and personal plans',
-      shopping: 'Orders, shipping, deliveries, and store promotions',
+      shopping:
+        'Orders, shipping, deliveries, store promotions, sales, gift card and reward offers, invitations to subscribe or upgrade',
       security: 'Sign-in alerts, password resets, verification codes, account access changes',
       other: null
     }
@@ -80,6 +83,7 @@ const QUESTIONS = {
 
 interface SystemOneResponse {
   model: string
+  usage?: { input_tokens?: number; output_tokens?: number }
   answers: {
     priority: { choice: Priority; confidence: number }
     category: { choice: Category }
@@ -95,7 +99,16 @@ async function post(apiKey: string, body: unknown): Promise<SystemOneResponse> {
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     })
-    if (res.ok) return (await res.json()) as SystemOneResponse
+    if (res.ok) {
+      const json = (await res.json()) as SystemOneResponse
+      recordUsage(
+        'typesafe',
+        json.model,
+        json.usage?.input_tokens ?? 0,
+        json.usage?.output_tokens ?? 0
+      )
+      return json
+    }
     if (res.status === 401) throw new TypeSafeAuthError('TypeSafe rejected the API key.')
     if ((res.status === 429 || res.status === 529 || res.status >= 500) && attempt < 4) {
       const retryAfter = Number(res.headers.get('retry-after')) || 2 ** attempt

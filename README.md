@@ -6,12 +6,12 @@ A local-first desktop app that puts mail, calendar, tasks and money-from-email i
 
 ## What it does
 
-- **Unified inbox** across Outlook (Microsoft Graph) and any number of Gmail accounts (Gmail API).
+- **Unified inbox** across Outlook (Microsoft Graph), any number of Gmail accounts (Gmail API) and iCloud Mail (IMAP, read-only with an app-specific password). Mail can be hidden locally, one at a time or all at once, without touching the provider.
 - **Today screen** that answers "what needs my attention right now": daily brief, priority mail, threads waiting on a reply, next events, tasks, and a schedule strip.
 - **Auto-classification** of new mail by priority, category and "needs reply", using a hosted classifier behind a swappable interface. Low-confidence mail goes to a Review tab and your corrections are stored.
 - **Assistant** (Groq) to summarize an email, draft a reply, or turn it into a task, only when you press the button. Drafts are never sent from the app, and every AI action is logged.
 - **Calendar** with month and week views, per-account colours, and de-duplication of events that arrive from several sources.
-- **Tasks and reminders**, plus a **Finance** view that pulls bills and subscriptions out of mail.
+- **Tasks and reminders**, plus a **Finance** view: bills, subscriptions and receipts pulled out of mail (the scan must quote evidence that money actually moved, so offers and gift-card promos are rejected), one-click adding from bill-like emails, hand-entered account balances, and **API usage** tracking with spend and remaining credit for the AI services.
 - **Command palette** (`Ctrl+K`) to search mail and events and run any action. All shortcuts are rebindable.
 - Tray icon, daily database backups, and read-only mail access by default.
 
@@ -21,10 +21,17 @@ A local-first desktop app that puts mail, calendar, tasks and money-from-email i
 | **Tasks** | **Command palette** |
 | ![Tasks](docs/screenshots/4-tasks.png) | ![Palette](docs/screenshots/0-palette.png) |
 
+## Security
+
+- Renderer runs sandboxed with context isolation; only a typed API is exposed, and every IPC call is checked to come from the app's own page.
+- The window can't navigate away from the app; links open in the default browser. Email bodies render in a script-less sandboxed iframe with remote images off by default.
+- Electron fuses disable RunAsNode, Node inspector flags and `NODE_OPTIONS`, and enforce asar integrity.
+- Email text given to the assistant is treated as untrusted; it only creates tasks or events when the user asks.
+
 ## Architecture
 
 ```
-Gmail (xN) / Outlook / calendars
+Gmail (xN) / Outlook / iCloud (IMAP) / calendars
         |  OAuth (loopback) + delta sync
         v
  Sync layer (Electron main)  --->  SQLite (node:sqlite, local)

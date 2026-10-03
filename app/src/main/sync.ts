@@ -11,6 +11,7 @@ import * as microsoft from './microsoft/auth'
 import { syncOutlookCalendar } from './microsoft/calendar'
 import { backfillOutlook, syncOutlookMail } from './microsoft/mail'
 import { applyClearedCutoff, clearedBefore } from './mailActions'
+import * as icloud from './icloud/mail'
 import { ReauthRequiredError } from './oauth'
 import {
   getPrimaryAccountId,
@@ -25,6 +26,7 @@ const SYNC_INTERVAL_MS = 5 * 60_000
 interface SyncState {
   gmailHistoryId?: string
   outlookDeltaLink?: string
+  icloud?: string
 }
 
 let running: Promise<void> | null = null
@@ -53,6 +55,8 @@ async function syncAccount(id: string): Promise<void> {
     } else if (row.provider === 'outlook') {
       state.outlookDeltaLink = await syncOutlookMail(db, id, state.outlookDeltaLink)
       await syncOutlookCalendar(db, id)
+    } else if (row.provider === 'icloud') {
+      state.icloud = await icloud.syncIcloudMail(db, id, state.icloud)
     }
     applyClearedCutoff(id)
     db.prepare(
@@ -119,12 +123,15 @@ async function addAccount(
 
 export const connectGoogle = (): Promise<Account> => addAccount('google', google.signIn)
 export const connectOutlook = (): Promise<Account> => addAccount('outlook', microsoft.signIn)
+export const connectIcloud = (address: string, appPassword: string): Promise<Account> =>
+  addAccount('icloud', () => icloud.signIn(address, appPassword))
 
 export async function disconnectAccount(id: string): Promise<void> {
   if (id.startsWith('demo-'))
     throw new Error('Demo accounts go away on their own once a real account is connected.')
   if (id.startsWith('google:')) await google.signOut(id)
   else if (id.startsWith('outlook:')) microsoft.signOut(id)
+  else if (id.startsWith('icloud:')) icloud.signOut(id)
   getDb().prepare('DELETE FROM accounts WHERE id = ?').run(id) // cascades to emails and events
   if (getPrimaryAccountId() === id) {
     setPrimaryAccountId(listAccounts().find((a) => a.provider !== 'demo')?.id ?? null)
@@ -159,7 +166,9 @@ export async function loadOlderMail(
           const n =
             c.provider === 'google'
               ? await backfillGmail(db, c.id, c.oldest, BACKFILL_BATCH)
-              : await backfillOutlook(db, c.id, c.oldest, BACKFILL_BATCH)
+              : c.provider === 'icloud'
+                ? await icloud.backfillIcloud(db, c.id, c.oldest, BACKFILL_BATCH)
+                : await backfillOutlook(db, c.id, c.oldest, BACKFILL_BATCH)
           // A short batch, or one that didn't move the account back in time, means nothing older.
           applyClearedCutoff(c.id)
           const after = inboxCoverage(c.id)[0]?.oldest

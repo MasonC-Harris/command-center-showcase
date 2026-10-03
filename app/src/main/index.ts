@@ -1,4 +1,5 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, session } from 'electron'
+import { existsSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -19,12 +20,18 @@ import {
   getFinanceScanStatus,
   listFinanceItems,
   saveFinanceItem,
-  scanFinanceMail
+  scanFinanceMail,
+  hideFinanceEmails,
+  restoreFinanceEmails,
+  listFinanceEmails
 } from './finance'
 import { getEmailBody } from './mailBody'
 import { hideAllInbox, hideEmail, unhideEmail, unhideMany } from './mailActions'
 import { deleteOutlookEvent } from './microsoft/events'
 import { getEventsRange } from './calendarRange'
+import { deleteBalance, listBalances, saveBalance } from './balances'
+import type { AccountBalanceInput } from '../shared/types'
+import { backfillUsage, getApiUsage, setApiBalance } from './apiUsage'
 import { cancelChat, chat } from './assistant/chat'
 import {
   createTask,
@@ -50,6 +57,7 @@ import {
 import {
   connectGoogle,
   connectOutlook,
+  connectIcloud,
   disconnectAccount,
   setPrimaryAccount,
   getSyncStatus,
@@ -101,6 +109,21 @@ app.on('second-instance', () => {
 // Fires for the tray's Quit, app.quit() from the installer or updater, and Windows shutdown.
 app.on('before-quit', markQuitting)
 
+/** The app's own page: the bundled index.html, or the dev server during development. */
+function isAppUrl(url: string): boolean {
+  const dev = is.dev ? process.env['ELECTRON_RENDERER_URL'] : undefined
+  if (dev && url.startsWith(dev)) return true
+  try {
+    const u = new URL(url)
+    return (
+      u.protocol === 'file:' &&
+      decodeURIComponent(u.pathname).replace(/\\/g, '/').endsWith('/renderer/index.html')
+    )
+  } catch {
+    return false
+  }
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1320,
@@ -114,7 +137,10 @@ function createWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webviewTag: false
     }
   })
 
@@ -153,41 +179,70 @@ function createWindow(): void {
     if (/^https?:\/\//.test(details.url)) void shell.openExternal(details.url)
     return { action: 'deny' }
   })
+  // The window only ever shows the app itself. A page loaded in it would get the preload api, so
+  // any navigation (a stray link, a redirect) is stopped; web links go to the browser instead.
+  const stayInApp = (e: Electron.Event, url: string): void => {
+    if (isAppUrl(url)) return
+    e.preventDefault()
+    if (/^https?:\/\//.test(url)) void shell.openExternal(url)
+  }
+  win.webContents.on('will-navigate', stayInApp)
+  win.webContents.on('will-redirect', stayInApp)
+  win.webContents.on('will-attach-webview', (e) => e.preventDefault())
+  // Backstop for navigations will-navigate doesn't report (e.g. about:blank): go back to the app.
+  win.webContents.on('did-navigate', (_e, url) => {
+    if (!isAppUrl(url)) loadApp(win)
+  })
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
+  loadApp(win)
+}
+
+/** Loads the dev server during development, the bundled page otherwise. */
+function loadApp(win: BrowserWindow): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'))
+    void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
 function registerIpc(): void {
+  const handleRaw = ipcMain.handle.bind(ipcMain)
+  const ipc = {
+    handle: (
+      channel: string,
+      fn: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown // eslint-disable-line @typescript-eslint/no-explicit-any
+    ): void =>
+      handleRaw(channel, (event, ...args) => {
+        const frame = event.senderFrame
+        if (!frame || frame.parent !== null || !isAppUrl(frame.url)) {
+          throw new Error('Blocked: request did not come from Command Center.')
+        }
+        return fn(event, ...args)
+      })
+  }
   const scopeArg = (scope: unknown): string | null => (typeof scope === 'string' ? scope : null)
   const cursorArg = (c: unknown): EmailCursor | null =>
     c && typeof c === 'object' && 'receivedAt' in c && 'id' in c
       ? { receivedAt: String(c.receivedAt), id: String(c.id) }
       : null
-  ipcMain.handle(IPC.loadOlderMail, (_, scope) => loadOlderMail(scopeArg(scope)))
-  ipcMain.handle(IPC.countReview, (_, scope) => countReview(scopeArg(scope)))
-  ipcMain.handle(IPC.getEmail, (_, emailId: string) => getEmail(String(emailId)))
-  ipcMain.handle(IPC.hideEmail, (_, emailId: string) => hideEmail(String(emailId)))
-  ipcMain.handle(IPC.unhideEmail, (_, emailId: string) => unhideEmail(String(emailId)))
-  ipcMain.handle(IPC.hideAllInbox, (_, scope) => hideAllInbox(scopeArg(scope)))
-  ipcMain.handle(IPC.unhideMany, (_, ids: unknown, scope) =>
+  ipc.handle(IPC.loadOlderMail, (_, scope) => loadOlderMail(scopeArg(scope)))
+  ipc.handle(IPC.countReview, (_, scope) => countReview(scopeArg(scope)))
+  ipc.handle(IPC.getEmail, (_, emailId: string) => getEmail(String(emailId)))
+  ipc.handle(IPC.hideEmail, (_, emailId: string) => hideEmail(String(emailId)))
+  ipc.handle(IPC.unhideEmail, (_, emailId: string) => unhideEmail(String(emailId)))
+  ipc.handle(IPC.hideAllInbox, (_, scope) => hideAllInbox(scopeArg(scope)))
+  ipc.handle(IPC.unhideMany, (_, ids: unknown, scope) =>
     unhideMany(Array.isArray(ids) ? ids.map(String) : null, scopeArg(scope))
   )
-  ipcMain.handle(IPC.getEmailBody, (_, emailId: string) => getEmailBody(String(emailId)))
-  ipcMain.handle(IPC.setEmailOverride, (_, emailId: string, override: EmailOverride | null) => {
+  ipc.handle(IPC.getEmailBody, (_, emailId: string) => getEmailBody(String(emailId)))
+  ipc.handle(IPC.setEmailOverride, (_, emailId: string, override: EmailOverride | null) => {
     setEmailOverride(String(emailId), override && typeof override === 'object' ? override : null)
     notifyChanged()
   })
-  ipcMain.handle(IPC.getToday, (_, scope) => getToday(scopeArg(scope)))
-  ipcMain.handle(IPC.setTaskStatus, (_, id: string, status: TaskStatus) =>
-    setTaskStatus(id, status)
-  )
-  ipcMain.handle(IPC.searchEmails, (_, query: string, scope, before, limit, view) =>
+  ipc.handle(IPC.getToday, (_, scope) => getToday(scopeArg(scope)))
+  ipc.handle(IPC.setTaskStatus, (_, id: string, status: TaskStatus) => setTaskStatus(id, status))
+  ipc.handle(IPC.searchEmails, (_, query: string, scope, before, limit, view) =>
     searchEmails(
       String(query ?? ''),
       scopeArg(scope),
@@ -196,10 +251,10 @@ function registerIpc(): void {
       view === 'review' || view === 'hidden' ? view : 'inbox'
     )
   )
-  ipcMain.handle(IPC.getAgenda, (_, days: number, scope) =>
+  ipc.handle(IPC.getAgenda, (_, days: number, scope) =>
     getAgenda(Number(days) || 7, scopeArg(scope))
   )
-  ipcMain.handle(IPC.getEventsRange, (_, start: string, end: string, scope) => {
+  ipc.handle(IPC.getEventsRange, (_, start: string, end: string, scope) => {
     const s = new Date(String(start))
     const e = new Date(String(end))
     if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e <= s)
@@ -208,31 +263,34 @@ function registerIpc(): void {
     if (e.getTime() - s.getTime() > 62 * 86_400_000) throw new Error('Date range too large.')
     return getEventsRange(s.toISOString(), e.toISOString(), scopeArg(scope))
   })
-  ipcMain.handle(IPC.listAccounts, () => listAccounts())
-  ipcMain.handle(IPC.getSyncStatus, () => getSyncStatus())
-  ipcMain.handle(IPC.connectGoogle, () => connectGoogle())
-  ipcMain.handle(IPC.connectOutlook, () => connectOutlook())
-  ipcMain.handle(IPC.setPrimaryAccount, (_, id: string) => setPrimaryAccount(String(id)))
-  ipcMain.handle(IPC.cancelConnect, () => cancelSignIn())
-  ipcMain.handle(IPC.disconnectAccount, (_, id: string) => disconnectAccount(id))
-  ipcMain.handle(IPC.syncNow, () => syncAll())
-  ipcMain.handle(IPC.getClassifierSettings, () => getClassifierSettings())
-  ipcMain.handle(IPC.setTypeSafeKey, (_, apiKey: unknown) =>
+  ipc.handle(IPC.listAccounts, () => listAccounts())
+  ipc.handle(IPC.getSyncStatus, () => getSyncStatus())
+  ipc.handle(IPC.connectGoogle, () => connectGoogle())
+  ipc.handle(IPC.connectOutlook, () => connectOutlook())
+  ipc.handle(IPC.connectIcloud, (_, address: string, appPassword: string) =>
+    connectIcloud(String(address ?? ''), String(appPassword ?? ''))
+  )
+  ipc.handle(IPC.setPrimaryAccount, (_, id: string) => setPrimaryAccount(String(id)))
+  ipc.handle(IPC.cancelConnect, () => cancelSignIn())
+  ipc.handle(IPC.disconnectAccount, (_, id: string) => disconnectAccount(id))
+  ipc.handle(IPC.syncNow, () => syncAll())
+  ipc.handle(IPC.getClassifierSettings, () => getClassifierSettings())
+  ipc.handle(IPC.setTypeSafeKey, (_, apiKey: unknown) =>
     setApiKey(typeof apiKey === 'string' && apiKey.trim() ? apiKey : null)
   )
-  ipcMain.handle(IPC.setClassifierEnabled, (_, enabled: unknown) =>
+  ipc.handle(IPC.setClassifierEnabled, (_, enabled: unknown) =>
     setClassifierEnabled(Boolean(enabled))
   )
-  ipcMain.handle(IPC.getAssistantSettings, () => getAssistantSettings())
-  ipcMain.handle(IPC.setGroqKey, (_, apiKey: unknown) =>
+  ipc.handle(IPC.getAssistantSettings, () => getAssistantSettings())
+  ipc.handle(IPC.setGroqKey, (_, apiKey: unknown) =>
     setGroqKey(typeof apiKey === 'string' && apiKey.trim() ? apiKey : null)
   )
-  ipcMain.handle(IPC.summarizeEmail, (_, emailId: string) => summarizeEmail(String(emailId)))
-  ipcMain.handle(IPC.draftReply, (_, emailId: string, instructions: unknown) =>
+  ipc.handle(IPC.summarizeEmail, (_, emailId: string) => summarizeEmail(String(emailId)))
+  ipc.handle(IPC.draftReply, (_, emailId: string, instructions: unknown) =>
     draftReply(String(emailId), typeof instructions === 'string' ? instructions.slice(0, 500) : '')
   )
-  ipcMain.handle(IPC.suggestTask, (_, emailId: string) => suggestTask(String(emailId)))
-  ipcMain.handle(IPC.chat, (e, requestId: string, turns: ChatTurn[], includeDay: unknown) =>
+  ipc.handle(IPC.suggestTask, (_, emailId: string) => suggestTask(String(emailId)))
+  ipc.handle(IPC.chat, (e, requestId: string, turns: ChatTurn[], includeDay: unknown) =>
     chat(
       e.sender,
       String(requestId),
@@ -244,16 +302,16 @@ function registerIpc(): void {
       Boolean(includeDay)
     )
   )
-  ipcMain.handle(IPC.cancelChat, (_, requestId: string) => cancelChat(String(requestId)))
-  ipcMain.handle(IPC.deleteCalendarEvent, async (_, accountId: string, eventId: string) => {
+  ipc.handle(IPC.cancelChat, (_, requestId: string) => cancelChat(String(requestId)))
+  ipc.handle(IPC.deleteCalendarEvent, async (_, accountId: string, eventId: string) => {
     const id = String(accountId)
     if (!id.startsWith('outlook:')) throw new Error('Only Outlook events can be removed here.')
     await deleteOutlookEvent(id, String(eventId))
     audit('user', 'event.delete', String(eventId))
     void syncAll()
   })
-  ipcMain.handle(IPC.listTasks, () => listTasks())
-  ipcMain.handle(IPC.createTask, (_, title: unknown, due: unknown, source: unknown) =>
+  ipc.handle(IPC.listTasks, () => listTasks())
+  ipc.handle(IPC.createTask, (_, title: unknown, due: unknown, source: unknown) =>
     createTask(
       String(title ?? ''),
       typeof due === 'string' && !Number.isNaN(Date.parse(due))
@@ -262,23 +320,37 @@ function registerIpc(): void {
       typeof source === 'string' ? source : null
     )
   )
-  ipcMain.handle(IPC.deleteTask, (_, id: string) => deleteTask(String(id)))
-  ipcMain.handle(IPC.updateTask, (_, id: string, update: TaskUpdate) =>
+  ipc.handle(IPC.deleteTask, (_, id: string) => deleteTask(String(id)))
+  ipc.handle(IPC.updateTask, (_, id: string, update: TaskUpdate) =>
     updateTask(String(id), update && typeof update === 'object' ? update : {})
   )
-  ipcMain.handle(IPC.listFinanceItems, () => listFinanceItems())
-  ipcMain.handle(IPC.saveFinanceItem, (_, id: unknown, input: FinanceItemInput) =>
+  ipc.handle(IPC.listFinanceItems, () => listFinanceItems())
+  ipc.handle(IPC.saveFinanceItem, (_, id: unknown, input: FinanceItemInput) =>
     saveFinanceItem(typeof id === 'string' ? id : null, input)
   )
-  ipcMain.handle(IPC.deleteFinanceItem, (_, id: string) => deleteFinanceItem(String(id)))
-  ipcMain.handle(IPC.getFinanceScanStatus, () => getFinanceScanStatus())
-  ipcMain.handle(IPC.scanFinanceMail, () => scanFinanceMail())
-  ipcMain.handle(IPC.getLaunchAtLogin, () => getLaunchAtLogin())
-  ipcMain.handle(IPC.setLaunchAtLogin, (_, enabled: boolean) => setLaunchAtLogin(Boolean(enabled)))
-  ipcMain.handle(IPC.getKeepInTray, () => getKeepInTray())
-  ipcMain.handle(IPC.setKeepInTray, (_, enabled: unknown) => setKeepInTray(Boolean(enabled)))
-  ipcMain.handle(IPC.getKeybindings, () => getKeybindings())
-  ipcMain.handle(IPC.setKeybindings, (_, overrides: unknown) => setKeybindings(overrides))
+  ipc.handle(IPC.deleteFinanceItem, (_, id: string) => deleteFinanceItem(String(id)))
+  ipc.handle(IPC.getFinanceScanStatus, () => getFinanceScanStatus())
+  ipc.handle(IPC.scanFinanceMail, () => scanFinanceMail())
+  ipc.handle(IPC.getApiUsage, () => getApiUsage())
+  ipc.handle(IPC.listFinanceEmails, () => listFinanceEmails())
+  ipc.handle(IPC.hideFinanceEmails, (_, ids: unknown) =>
+    hideFinanceEmails(Array.isArray(ids) ? ids.map(String) : [])
+  )
+  ipc.handle(IPC.restoreFinanceEmails, () => restoreFinanceEmails())
+  ipc.handle(IPC.listBalances, () => listBalances())
+  ipc.handle(IPC.saveBalance, (_, id: string | null, input: AccountBalanceInput) =>
+    saveBalance(id ? String(id) : null, input)
+  )
+  ipc.handle(IPC.deleteBalance, (_, id: string) => deleteBalance(String(id)))
+  ipc.handle(IPC.setApiBalance, (_, provider: string, amount: unknown) =>
+    setApiBalance(String(provider), amount === null ? null : Number(amount))
+  )
+  ipc.handle(IPC.getLaunchAtLogin, () => getLaunchAtLogin())
+  ipc.handle(IPC.setLaunchAtLogin, (_, enabled: boolean) => setLaunchAtLogin(Boolean(enabled)))
+  ipc.handle(IPC.getKeepInTray, () => getKeepInTray())
+  ipc.handle(IPC.setKeepInTray, (_, enabled: unknown) => setKeepInTray(Boolean(enabled)))
+  ipc.handle(IPC.getKeybindings, () => getKeybindings())
+  ipc.handle(IPC.setKeybindings, (_, overrides: unknown) => setKeybindings(overrides))
 }
 
 app.whenReady().then(() => {
@@ -290,11 +362,26 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // Placeholder data only until a real account is connected.
-  if (hasRealAccounts()) clearDemoData(getDb())
-  else seedDemoData(getDb())
+  // Placeholder data only until a real account is connected. Once one has been, a missing account
+  // list at startup is treated as a glitch: re-read the database instead of seeding demo data.
+  const marker = join(app.getPath('userData'), 'has-real-accounts')
+  let real = hasRealAccounts()
+  for (let attempt = 0; !real && existsSync(marker) && attempt < 3; attempt++) {
+    console.error('Accounts missing at startup; reopening the database.')
+    closeDb()
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
+    real = hasRealAccounts()
+  }
+  if (real) {
+    clearDemoData(getDb())
+    writeFileSync(marker, '')
+  } else if (!existsSync(marker)) seedDemoData(getDb())
+  else audit('system', 'startup.accounts-missing', 'demo data not seeded')
 
+  backfillUsage()
   applyLaunchAtLoginDefault()
+  session.defaultSession.setPermissionRequestHandler((_wc, _perm, callback) => callback(false))
+  session.defaultSession.setPermissionCheckHandler(() => false)
   registerIpc()
   createWindow()
   createTray()

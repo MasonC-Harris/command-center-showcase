@@ -94,8 +94,9 @@ export async function getEventsRange(
   const cached = liveCache.get(cacheKey)
   if (cached && Date.now() - cached.at < LIVE_CACHE_MS) return cached.events
 
+  // iCloud is connected for mail only.
   const accounts = listAccounts().filter(
-    (a) => a.provider !== 'demo' && (scope === null || a.id === scope)
+    (a) => a.provider !== 'demo' && a.provider !== 'icloud' && (scope === null || a.id === scope)
   )
   const perAccount = await Promise.all(
     accounts.map(async (a) => {

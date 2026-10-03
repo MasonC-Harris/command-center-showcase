@@ -134,6 +134,27 @@ const MIGRATIONS: string[] = [
   `,
   `
   ALTER TABLE emails ADD COLUMN hidden_at TEXT;
+  `,
+  `
+  CREATE TABLE api_usage (
+    day TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    requests INTEGER NOT NULL DEFAULT 0,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, provider, model)
+  );
+  `,
+  `
+  CREATE TABLE balances (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'USD',
+    updated_at TEXT NOT NULL,
+    sort INTEGER NOT NULL DEFAULT 0
+  );
   `
 ]
 

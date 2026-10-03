@@ -51,6 +51,24 @@ export function Settings({
     }
   }
 
+  const [icloudForm, setIcloudForm] = useState<{ address: string; password: string } | null>(null)
+
+  const connectIcloud = async (): Promise<void> => {
+    if (!icloudForm) return
+    setConnecting('icloud')
+    setMessage('Checking with iCloud…')
+    try {
+      const account = await window.api.connectIcloud(icloudForm.address, icloudForm.password)
+      setIcloudForm(null)
+      setMessage(`Connected ${account.address}.`)
+    } catch (err) {
+      setMessage(errorText(err))
+    } finally {
+      setConnecting(null)
+      load()
+    }
+  }
+
   const disconnect = async (a: Account): Promise<void> => {
     if (
       !window.confirm(
@@ -99,7 +117,11 @@ export function Settings({
                     <span className="row-title">{a.address}</span>
                     {a.isPrimary && <span className="badge">Main</span>}
                     <span className="row-meta">
-                      {a.provider === 'outlook' ? 'Outlook + Calendar' : 'Gmail + Calendar'}
+                      {a.provider === 'outlook'
+                        ? 'Outlook + Calendar'
+                        : a.provider === 'icloud'
+                          ? 'iCloud Mail'
+                          : 'Gmail + Calendar'}
                     </span>
                   </div>
                   <div className={`row-sub ${a.status === 'error' ? 'overdue' : ''}`}>
@@ -118,7 +140,11 @@ export function Settings({
                   <button
                     className="btn"
                     disabled={connecting !== null}
-                    onClick={() => connect(a.provider)}
+                    onClick={() =>
+                      a.provider === 'icloud'
+                        ? setIcloudForm({ address: a.address, password: '' })
+                        : connect(a.provider)
+                    }
                   >
                     Reconnect
                   </button>
@@ -138,6 +164,55 @@ export function Settings({
             ))}
           </ul>
 
+          {icloudForm && (
+            <form
+              className="icloud-form"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void connectIcloud()
+              }}
+            >
+              <p className="muted">
+                iCloud Mail needs an app-specific password, not your Apple ID password. Create one
+                at{' '}
+                <a href="https://account.apple.com/account/manage" target="_blank" rel="noreferrer">
+                  account.apple.com
+                </a>{' '}
+                → Sign-In and Security → App-Specific Passwords, then paste it here. Command Center
+                only reads your Inbox; nothing in iCloud is changed or marked read.
+              </p>
+              <div className="actions-row">
+                <input
+                  className="text-input"
+                  type="email"
+                  autoFocus={!icloudForm.address}
+                  placeholder="you@icloud.com"
+                  value={icloudForm.address}
+                  onChange={(e) => setIcloudForm({ ...icloudForm, address: e.target.value })}
+                />
+                <input
+                  className="text-input"
+                  type="password"
+                  autoFocus={!!icloudForm.address}
+                  autoComplete="off"
+                  placeholder="xxxx-xxxx-xxxx-xxxx"
+                  value={icloudForm.password}
+                  onChange={(e) => setIcloudForm({ ...icloudForm, password: e.target.value })}
+                />
+                <button
+                  className="btn primary"
+                  type="submit"
+                  disabled={connecting !== null || !icloudForm.address || !icloudForm.password}
+                >
+                  {connecting === 'icloud' ? 'Connecting…' : 'Connect'}
+                </button>
+                <button className="btn ghost" type="button" onClick={() => setIcloudForm(null)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
           <div className="actions-row">
             <button
               className="btn primary"
@@ -153,7 +228,14 @@ export function Settings({
             >
               {connecting === 'google' ? 'Waiting for Google…' : 'Connect Google'}
             </button>
-            {connecting && (
+            <button
+              className="btn"
+              disabled={connecting !== null}
+              onClick={() => setIcloudForm({ address: '', password: '' })}
+            >
+              Connect iCloud
+            </button>
+            {connecting && connecting !== 'icloud' && (
               <button className="btn" onClick={() => void window.api.cancelConnect()}>
                 Cancel
               </button>

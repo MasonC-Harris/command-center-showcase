@@ -1,7 +1,7 @@
 // Types shared by the main process, preload bridge, and renderer.
 
 /** "google" covers both Gmail and Google Calendar for one Google account. */
-export type Provider = 'google' | 'outlook' | 'demo'
+export type Provider = 'google' | 'outlook' | 'icloud' | 'demo'
 
 export type Priority = 'urgent' | 'needs_reply' | 'fyi' | 'newsletter' | 'junk'
 
@@ -180,6 +180,68 @@ export interface FinanceItemInput {
   occurredAt: string
   status: FinanceStatus
   notes: string | null
+  /** New items only: the email the item came from. */
+  sourceEmailId?: string | null
+}
+
+/** A bank or card balance the user enters by hand. */
+export interface AccountBalance {
+  id: string
+  name: string
+  amountCents: number
+  currency: string
+  updatedAt: string
+}
+
+export interface AccountBalanceInput {
+  name: string
+  amountCents: number
+  currency: string
+}
+
+/** A recent bill-like email that isn't in Finance yet. */
+export interface FinanceEmail {
+  id: string
+  fromName: string | null
+  fromAddr: string
+  subject: string
+  snippet: string
+  receivedAt: string
+  /** First dollar amount in the subject or preview, if any. */
+  amountCents: number | null
+}
+
+export interface ApiUsageTotals {
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  /** USD at the provider's published rates. */
+  cost: number
+}
+
+/** Usage and spend for one connected API (TypeSafe, Groq, ...). */
+export interface ApiUsageSummary {
+  id: string
+  name: string
+  connected: boolean
+  billingUrl: string
+  note: string | null
+  /** Calls made before usage tracking began, counted from past results with estimated tokens. */
+  estimatedRequests: number
+  today: ApiUsageTotals
+  month: ApiUsageTotals
+  total: ApiUsageTotals
+  /** The balance the user entered, minus spend since then. */
+  balance: { amount: number; setAt: string; remaining: number } | null
+  /** Latest rate limits reported by the provider, if it sends them. */
+  limits: {
+    model: string
+    requestsLimit: number | null
+    requestsRemaining: number | null
+    tokensLimit: number | null
+    tokensRemaining: number | null
+    at: string
+  } | null
 }
 
 export interface FinanceScanStatus {
@@ -296,6 +358,8 @@ export interface CommandCenterApi {
   /** Opens the Google sign-in page in the default browser and resolves once the account is connected. */
   connectGoogle(): Promise<Account>
   connectOutlook(): Promise<Account>
+  /** iCloud Mail over IMAP with an app-specific password (mail only, read-only). */
+  connectIcloud(address: string, appPassword: string): Promise<Account>
   setPrimaryAccount(id: string): Promise<void>
   /** Abandons a sign-in that is waiting on the browser. */
   cancelConnect(): Promise<void>
@@ -336,6 +400,17 @@ export interface CommandCenterApi {
   getFinanceScanStatus(): Promise<FinanceScanStatus>
   /** Sends sender, subject, date and snippet (never the body) of recent finance-looking mail to Groq. */
   scanFinanceMail(): Promise<FinanceScanStatus>
+  getApiUsage(): Promise<ApiUsageSummary[]>
+  /** Bill-like mail not in Finance yet, and how many were hidden from that list. */
+  listFinanceEmails(): Promise<{ emails: FinanceEmail[]; hidden: number }>
+  /** Hides emails from Finance's "From your mail" list (the Inbox is not affected). */
+  hideFinanceEmails(ids: string[]): Promise<void>
+  restoreFinanceEmails(): Promise<number>
+  listBalances(): Promise<AccountBalance[]>
+  saveBalance(id: string | null, input: AccountBalanceInput): Promise<AccountBalance>
+  deleteBalance(id: string): Promise<void>
+  /** Sets the credit currently on the account (null clears it); later spend comes off it. */
+  setApiBalance(provider: string, amount: number | null): Promise<void>
   /** Fires when the app asks a window to show a view, e.g. after clicking a reminder. */
   onNavigate(callback: (view: string) => void): () => void
   getLaunchAtLogin(): Promise<LaunchAtLogin>
@@ -369,6 +444,7 @@ export const IPC = {
   getSyncStatus: 'sync:status',
   connectGoogle: 'accounts:connect-google',
   connectOutlook: 'accounts:connect-outlook',
+  connectIcloud: 'accounts:connect-icloud',
   setPrimaryAccount: 'accounts:set-primary',
   cancelConnect: 'accounts:cancel-connect',
   disconnectAccount: 'accounts:disconnect',
@@ -395,6 +471,14 @@ export const IPC = {
   deleteFinanceItem: 'finance:delete',
   getFinanceScanStatus: 'finance:scan-status',
   scanFinanceMail: 'finance:scan',
+  getApiUsage: 'api-usage:get',
+  listFinanceEmails: 'finance:emails',
+  hideFinanceEmails: 'finance:emails-hide',
+  restoreFinanceEmails: 'finance:emails-restore',
+  listBalances: 'balances:list',
+  saveBalance: 'balances:save',
+  deleteBalance: 'balances:delete',
+  setApiBalance: 'api-usage:set-balance',
   navigate: 'app:navigate',
   getLaunchAtLogin: 'system:get-launch-at-login',
   setLaunchAtLogin: 'system:set-launch-at-login',

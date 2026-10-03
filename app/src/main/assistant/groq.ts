@@ -1,6 +1,8 @@
 // Groq chat completions (OpenAI-compatible). https://console.groq.com/docs/api-reference
 // GPT-OSS models support strict JSON-schema output and a reasoning_effort control.
 
+import { recordLimits, recordUsage } from '../apiUsage'
+
 const BASE = 'https://api.groq.com/openai/v1'
 export const GROQ_MODEL = 'openai/gpt-oss-120b'
 /** Smaller, faster model for bulk extraction. Each model has its own rate limit on Groq. */
@@ -62,8 +64,15 @@ export async function chatJson<T>(
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     })
+    recordLimits('groq', model, res)
     if (res.ok) {
       const json = (await res.json()) as ChatResponse
+      recordUsage(
+        'groq',
+        json.model,
+        json.usage?.prompt_tokens ?? 0,
+        json.usage?.completion_tokens ?? 0
+      )
       return { data: JSON.parse(json.choices[0].message.content) as T, model: json.model }
     }
     if (res.status === 401) throw new GroqAuthError('Groq rejected the API key.')

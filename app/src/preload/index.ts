@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 import { IPC, type ChatTaskAction, type CommandCenterApi } from '../shared/types'
 
 // Typed bridge to the main process. The renderer only talks to main through this object.
@@ -24,6 +23,8 @@ const api: CommandCenterApi = {
   getSyncStatus: () => ipcRenderer.invoke(IPC.getSyncStatus),
   connectGoogle: () => ipcRenderer.invoke(IPC.connectGoogle),
   connectOutlook: () => ipcRenderer.invoke(IPC.connectOutlook),
+  connectIcloud: (address, appPassword) =>
+    ipcRenderer.invoke(IPC.connectIcloud, address, appPassword),
   setPrimaryAccount: (id) => ipcRenderer.invoke(IPC.setPrimaryAccount, id),
   cancelConnect: () => ipcRenderer.invoke(IPC.cancelConnect),
   disconnectAccount: (id) => ipcRenderer.invoke(IPC.disconnectAccount, id),
@@ -65,6 +66,14 @@ const api: CommandCenterApi = {
   deleteFinanceItem: (id) => ipcRenderer.invoke(IPC.deleteFinanceItem, id),
   getFinanceScanStatus: () => ipcRenderer.invoke(IPC.getFinanceScanStatus),
   scanFinanceMail: () => ipcRenderer.invoke(IPC.scanFinanceMail),
+  getApiUsage: () => ipcRenderer.invoke(IPC.getApiUsage),
+  listFinanceEmails: () => ipcRenderer.invoke(IPC.listFinanceEmails),
+  hideFinanceEmails: (ids) => ipcRenderer.invoke(IPC.hideFinanceEmails, ids),
+  restoreFinanceEmails: () => ipcRenderer.invoke(IPC.restoreFinanceEmails),
+  listBalances: () => ipcRenderer.invoke(IPC.listBalances),
+  saveBalance: (id, input) => ipcRenderer.invoke(IPC.saveBalance, id, input),
+  deleteBalance: (id) => ipcRenderer.invoke(IPC.deleteBalance, id),
+  setApiBalance: (provider, amount) => ipcRenderer.invoke(IPC.setApiBalance, provider, amount),
   onNavigate: (callback) => {
     const listener = (_: unknown, view: string): void => callback(view)
     ipcRenderer.on(IPC.navigate, listener)
@@ -83,19 +92,5 @@ const api: CommandCenterApi = {
   }
 }
 
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
-  }
-} else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
-}
+// Only the typed api is exposed: the page cannot reach ipcRenderer or other IPC channels.
+contextBridge.exposeInMainWorld('api', api)

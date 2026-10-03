@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type {
+  AccountBalance,
+  ApiUsageSummary,
+  FinanceEmail,
   FinanceItem,
   FinanceItemInput,
   FinanceKind,
@@ -131,6 +134,8 @@ export function Finance({ onOpenEmail }: { onOpenEmail: (id: string) => void }):
       {editing === 'new' && <ItemEditor item={null} onDone={() => setEditing(null)} />}
 
       <div className="bento">
+        <BalancesTile />
+
         <section className="tile">
           <header className="tile-header">
             Upcoming bills <span className="count mono">{view.bills.length}</span>
@@ -190,6 +195,10 @@ export function Finance({ onOpenEmail }: { onOpenEmail: (id: string) => void }):
           <SpendBars items={view.spend} loaded={items !== null} />
         </section>
 
+        <FinanceEmailsTile onOpenEmail={onOpenEmail} />
+
+        <ApiUsageTile />
+
         <section className="tile span-3">
           <header className="tile-header">Recent</header>
           <ul className="tile-list">
@@ -214,6 +223,442 @@ export function Finance({ onOpenEmail }: { onOpenEmail: (id: string) => void }):
         </section>
       </div>
     </div>
+  )
+}
+
+/** Small API bills need more than two decimals to show anything. */
+function usd(amount: number): string {
+  const abs = Math.abs(amount)
+  const digits = abs === 0 || abs >= 1 ? 2 : abs >= 0.01 ? 3 : 5
+  return `${amount < 0 ? '-' : ''}$${abs.toFixed(digits)}`
+}
+
+const compact = (n: number): string =>
+  new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(n)
+
+/** Spend and remaining credit for the paid APIs (Jev, Groq, and any added later). */
+function ApiUsageTile(): React.JSX.Element {
+  const [usage, setUsage] = useState<ApiUsageSummary[] | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
+
+  const load = (): void => void window.api.getApiUsage().then(setUsage)
+  useEffect(() => {
+    load()
+    // Rate limits change with every call; keep the numbers fresh while the page is open.
+    const id = setInterval(load, 30_000)
+    return () => clearInterval(id)
+  }, [])
+  useDataChanged(load)
+
+  return (
+    <section className="tile span-3">
+      <header className="tile-header">
+        API usage <span className="count mono">{usage?.length ?? 0}</span>
+        <span className="hint">Counted by this app at published rates</span>
+      </header>
+      <ul className="tile-list">
+        {usage && usage.length === 0 && (
+          <li className="empty">No paid APIs connected. Add a key in Settings.</li>
+        )}
+        {usage?.map((p) => (
+          <li key={p.id} className="api-usage">
+            <div className="api-usage-head">
+              <span className="row-title">{p.name}</span>
+              {p.balance ? (
+                <span
+                  className={`mono api-balance ${p.balance.remaining < p.balance.amount * 0.1 ? 'overdue' : ''}`}
+                >
+                  {usd(p.balance.remaining)} left
+                </span>
+              ) : (
+                <span className="muted">Balance unknown: set it to track what&apos;s left</span>
+              )}
+              <button className="btn ghost header-action" onClick={() => setEditing(p.id)}>
+                {p.balance ? 'Update balance' : 'Set balance'}
+              </button>
+              <a className="link row-meta" href={p.billingUrl} target="_blank" rel="noreferrer">
+                Billing
+              </a>
+            </div>
+            {editing === p.id && (
+              <BalanceEditor
+                current={p.balance?.remaining ?? null}
+                onSave={async (amount) => {
+                  await window.api.setApiBalance(p.id, amount)
+                  setEditing(null)
+                  load()
+                }}
+                onCancel={() => setEditing(null)}
+              />
+            )}
+            <div className="api-usage-grid mono">
+              {(
+                [
+                  ['Today', p.today],
+                  ['This month', p.month],
+                  ['All time', p.total]
+                ] as const
+              ).map(([label, t]) => (
+                <div key={label}>
+                  <div className="muted">{label}</div>
+                  <div className="api-cost">{usd(t.cost)}</div>
+                  <div className="muted">
+                    {t.requests} calls · {compact(t.inputTokens + t.outputTokens)} tokens
+                  </div>
+                </div>
+              ))}
+            </div>
+            {p.limits && (
+              <div className="muted mono api-usage-sub">
+                Rate limit ({p.limits.model}): {p.limits.requestsRemaining ?? '?'}/
+                {p.limits.requestsLimit ?? '?'} requests today
+                {p.limits.tokensLimit !== null &&
+                  ` · ${compact(p.limits.tokensRemaining ?? 0)}/${compact(p.limits.tokensLimit)} tokens per minute`}
+              </div>
+            )}
+            {p.balance && (
+              <div className="muted api-usage-sub">
+                Balance of {usd(p.balance.amount)} entered {shortDate(p.balance.setAt)}; spend since
+                then is subtracted.
+              </div>
+            )}
+            {p.estimatedRequests > 0 && (
+              <div className="muted api-usage-sub">
+                Includes {p.estimatedRequests} earlier calls made before tracking started, with
+                estimated token counts.
+              </div>
+            )}
+            {p.note && <div className="muted api-usage-sub">{p.note}</div>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function BalanceEditor({
+  current,
+  onSave,
+  onCancel
+}: {
+  current: number | null
+  onSave: (amount: number | null) => Promise<void>
+  onCancel: () => void
+}): React.JSX.Element {
+  const [value, setValue] = useState(current === null ? '' : current.toFixed(2))
+  const [error, setError] = useState<string | null>(null)
+  const save = (): void => {
+    const amount = value.trim() === '' ? null : Number(value.replace(/[$,\s]/g, ''))
+    if (amount !== null && (!Number.isFinite(amount) || amount < 0)) {
+      setError('Enter a dollar amount, e.g. 4.85')
+      return
+    }
+    onSave(amount).catch((err) => setError(errorText(err)))
+  }
+  return (
+    <div className="actions-row api-balance-editor">
+      <input
+        className="text-input"
+        autoFocus
+        inputMode="decimal"
+        placeholder="Credit left on the account, e.g. 4.85"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') save()
+          if (e.key === 'Escape') onCancel()
+        }}
+      />
+      <button className="btn primary" onClick={save}>
+        Save
+      </button>
+      <button className="btn ghost" onClick={onCancel}>
+        Cancel
+      </button>
+      {error && <span className="warning">{error}</span>}
+      <span className="muted hint-right">
+        Copy it from the provider&apos;s billing page. Empty clears it.
+      </span>
+    </div>
+  )
+}
+
+/** Bank and card balances, typed in by hand now and then. */
+function BalancesTile(): React.JSX.Element {
+  const [balances, setBalances] = useState<AccountBalance[] | null>(null)
+  const [editing, setEditing] = useState<string | 'new' | null>(null)
+
+  const load = (): void => void window.api.listBalances().then(setBalances)
+  useEffect(load, [])
+  useDataChanged(load)
+
+  const list = balances ?? []
+  const oldest = list.reduce<string | null>(
+    (min, b) => (min === null || b.updatedAt < min ? b.updatedAt : min),
+    null
+  )
+
+  return (
+    <section className="tile span-3">
+      <header className="tile-header">
+        Balances <span className="count mono">{list.length}</span>
+        <button className="btn ghost header-action" onClick={() => setEditing('new')}>
+          <Icon name="plus" size={10} /> Add account
+        </button>
+        <span className="hint mono">{oldest ? `oldest update ${shortDate(oldest)}` : ''}</span>
+      </header>
+      <div className="balance-total">
+        <span className="muted">Total</span>
+        <span className="mono balance-total-amount">{totalBalance(list)}</span>
+      </div>
+      <ul className="tile-list">
+        {balances && list.length === 0 && editing !== 'new' && (
+          <li className="empty">
+            Add your bank and card accounts with their current balance. Update them whenever you
+            check.
+          </li>
+        )}
+        {list.map((b) =>
+          editing === b.id ? (
+            <BalanceRowEditor key={b.id} balance={b} onDone={() => setEditing(null)} />
+          ) : (
+            <li
+              key={b.id}
+              className="row balance-row"
+              role="button"
+              tabIndex={0}
+              title="Click to update"
+              onClick={() => setEditing(b.id)}
+              onKeyDown={(e) => e.key === 'Enter' && setEditing(b.id)}
+            >
+              <div className="row-main">
+                <span className="row-title">{b.name}</span>
+                <div className="row-sub mono">updated {shortDate(b.updatedAt)}</div>
+              </div>
+              <span className={`mono balance-amount ${b.amountCents < 0 ? 'overdue' : ''}`}>
+                {money(b.amountCents, b.currency)}
+              </span>
+            </li>
+          )
+        )}
+        {editing === 'new' && <BalanceRowEditor balance={null} onDone={() => setEditing(null)} />}
+      </ul>
+    </section>
+  )
+}
+
+/** Sums per currency, like totalLabel for items. */
+function totalBalance(list: AccountBalance[]): string {
+  const sums = new Map<string, number>()
+  for (const b of list) sums.set(b.currency, (sums.get(b.currency) ?? 0) + b.amountCents)
+  if (sums.size === 0) return money(0, 'USD')
+  return [...sums].map(([cur, cents]) => money(cents, cur)).join(' + ')
+}
+
+function BalanceRowEditor({
+  balance,
+  onDone
+}: {
+  balance: AccountBalance | null
+  onDone: () => void
+}): React.JSX.Element {
+  const [name, setName] = useState(balance?.name ?? '')
+  const [amount, setAmount] = useState(balance ? (balance.amountCents / 100).toFixed(2) : '')
+  const [error, setError] = useState<string | null>(null)
+
+  const save = async (): Promise<void> => {
+    const value = Number(amount.replace(/[$,\s]/g, ''))
+    if (!Number.isFinite(value)) {
+      setError('Enter an amount, e.g. 899.84')
+      return
+    }
+    try {
+      await window.api.saveBalance(balance?.id ?? null, {
+        name,
+        amountCents: Math.round(value * 100),
+        currency: balance?.currency ?? 'USD'
+      })
+      onDone()
+    } catch (err) {
+      setError(errorText(err))
+    }
+  }
+  const remove = async (): Promise<void> => {
+    if (!balance || !window.confirm(`Remove ${balance.name}?`)) return
+    await window.api.deleteBalance(balance.id)
+    onDone()
+  }
+  const keys = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Enter') void save()
+    if (e.key === 'Escape') onDone()
+  }
+
+  return (
+    <li className="task-editor">
+      <div className="actions-row">
+        <input
+          className="text-input"
+          autoFocus={!balance}
+          placeholder="Account, e.g. BofA checking"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={keys}
+        />
+        <input
+          className="text-input balance-input mono"
+          autoFocus={!!balance}
+          inputMode="decimal"
+          placeholder="0.00"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          onKeyDown={keys}
+        />
+        <button className="btn primary" onClick={() => void save()}>
+          Save
+        </button>
+        <button className="btn ghost" onClick={onDone}>
+          Cancel
+        </button>
+        {balance && (
+          <button className="btn ghost danger" onClick={() => void remove()}>
+            Remove
+          </button>
+        )}
+        {error && <span className="warning">{error}</span>}
+      </div>
+    </li>
+  )
+}
+
+const ADD_AS: { kind: FinanceKind; label: string }[] = [
+  { kind: 'receipt', label: 'Spending' },
+  { kind: 'subscription', label: 'Subscription' },
+  { kind: 'bill', label: 'Bill' }
+]
+
+/** Bill-like mail that isn't in Finance yet, with one-click adding. */
+function FinanceEmailsTile({
+  onOpenEmail
+}: {
+  onOpenEmail: (id: string) => void
+}): React.JSX.Element {
+  const [emails, setEmails] = useState<FinanceEmail[] | null>(null)
+  const [hiddenCount, setHiddenCount] = useState(0)
+  const [adding, setAdding] = useState<{ id: string; kind: FinanceKind } | null>(null)
+  const [showAll, setShowAll] = useState(false)
+
+  const load = (): void =>
+    void window.api.listFinanceEmails().then((r) => {
+      setEmails(r.emails)
+      setHiddenCount(r.hidden)
+    })
+
+  const hide = (ids: string[]): void => {
+    setEmails((list) => list?.filter((e) => !ids.includes(e.id)) ?? null)
+    void window.api.hideFinanceEmails(ids)
+  }
+  const hideAll = (): void => {
+    if (!emails?.length) return
+    if (
+      !window.confirm(`Hide all ${emails.length} emails from this list? Your Inbox is not changed.`)
+    )
+      return
+    hide(emails.map((e) => e.id))
+  }
+  useEffect(load, [])
+  useDataChanged(load)
+
+  const shown = showAll ? (emails ?? []) : (emails ?? []).slice(0, 6)
+
+  return (
+    <section className="tile span-3">
+      <header className="tile-header">
+        From your mail <span className="count mono">{emails?.length ?? 0}</span>
+        <span className="hint">Bill-like emails not in Finance yet</span>
+        {emails && emails.length > 0 && (
+          <button className="btn ghost header-action" onClick={hideAll}>
+            Hide all
+          </button>
+        )}
+        {hiddenCount > 0 && (
+          <button
+            className="btn ghost header-action"
+            onClick={() => void window.api.restoreFinanceEmails()}
+          >
+            Restore {hiddenCount} hidden
+          </button>
+        )}
+      </header>
+      <ul className="tile-list">
+        {emails && emails.length === 0 && (
+          <li className="empty">Nothing waiting. Bills and receipts you add show up above.</li>
+        )}
+        {shown.map((e) =>
+          adding?.id === e.id ? (
+            <ItemEditor
+              key={e.id}
+              item={null}
+              draft={{
+                kind: adding.kind,
+                merchant: e.fromName || e.fromAddr,
+                amountCents: e.amountCents ?? 0,
+                currency: 'USD',
+                due: null,
+                occurredAt: e.receivedAt,
+                // Spending is money already spent; bills and subscriptions start open.
+                status: adding.kind === 'receipt' ? 'paid' : 'open',
+                notes: e.subject,
+                sourceEmailId: e.id
+              }}
+              onDone={() => setAdding(null)}
+            />
+          ) : (
+            <li key={e.id} className="row finance-email">
+              <div className="row-main">
+                <div className="row-top">
+                  <span className="row-title">{e.fromName || e.fromAddr}</span>
+                  <span className="row-meta mono">{shortDate(e.receivedAt)}</span>
+                  {e.amountCents !== null && (
+                    <span className="row-meta mono">{money(e.amountCents, 'USD')}</span>
+                  )}
+                </div>
+                <div className="row-sub">{e.subject}</div>
+              </div>
+              <div className="finance-add">
+                {ADD_AS.map((a) => (
+                  <button
+                    key={a.kind}
+                    className="label-chip"
+                    title={`Add as ${a.label.toLowerCase()}`}
+                    onClick={() => setAdding({ id: e.id, kind: a.kind })}
+                  >
+                    <Icon name="plus" size={10} /> {a.label}
+                  </button>
+                ))}
+                <button className="link row-meta" onClick={() => onOpenEmail(e.id)}>
+                  Email
+                </button>
+                <button
+                  className="row-action"
+                  title="Hide from this list"
+                  aria-label={`Hide "${e.subject}" from this list`}
+                  onClick={() => hide([e.id])}
+                >
+                  <Icon name="hide" size={12} />
+                </button>
+              </div>
+            </li>
+          )
+        )}
+        {emails && emails.length > 6 && (
+          <li className="empty">
+            <button className="link" onClick={() => setShowAll((v) => !v)}>
+              {showAll ? 'Show fewer' : `Show all ${emails.length}`}
+            </button>
+          </li>
+        )}
+      </ul>
+    </section>
   )
 }
 
@@ -336,19 +781,25 @@ const fromDateInput = (v: string): string | null =>
 
 function ItemEditor({
   item,
+  draft,
   onDone
 }: {
   item: FinanceItem | null
+  /** Starting values for a new item, e.g. one made from an email. */
+  draft?: Omit<FinanceItem, 'id'>
   onDone: () => void
 }): React.JSX.Element {
-  const [kind, setKind] = useState<FinanceKind>(item?.kind ?? 'bill')
-  const [merchant, setMerchant] = useState(item?.merchant ?? '')
-  const [amount, setAmount] = useState(item ? (item.amountCents / 100).toFixed(2) : '')
-  const [currency, setCurrency] = useState(item?.currency ?? 'USD')
-  const [due, setDue] = useState(toDateInput(item?.due ?? null))
-  const [date, setDate] = useState(toDateInput(item?.occurredAt ?? new Date().toISOString()))
-  const [status, setStatus] = useState<FinanceStatus>(item?.status ?? 'open')
-  const [notes, setNotes] = useState(item?.notes ?? '')
+  const start = item ?? draft
+  const [kind, setKind] = useState<FinanceKind>(start?.kind ?? 'bill')
+  const [merchant, setMerchant] = useState(start?.merchant ?? '')
+  const [amount, setAmount] = useState(
+    start && start.amountCents > 0 ? (start.amountCents / 100).toFixed(2) : ''
+  )
+  const [currency, setCurrency] = useState(start?.currency ?? 'USD')
+  const [due, setDue] = useState(toDateInput(start?.due ?? null))
+  const [date, setDate] = useState(toDateInput(start?.occurredAt ?? new Date().toISOString()))
+  const [status, setStatus] = useState<FinanceStatus>(start?.status ?? 'open')
+  const [notes, setNotes] = useState(start?.notes ?? '')
   const [error, setError] = useState<string | null>(null)
 
   const save = async (): Promise<void> => {
@@ -365,7 +816,8 @@ function ItemEditor({
       due: fromDateInput(due),
       occurredAt: fromDateInput(date) ?? new Date().toISOString(),
       status,
-      notes: notes.trim() ? notes : null
+      notes: notes.trim() ? notes : null,
+      sourceEmailId: item ? undefined : (draft?.sourceEmailId ?? null)
     }
     try {
       await window.api.saveFinanceItem(item?.id ?? null, input)
