@@ -12,8 +12,11 @@ interface ProviderInfo {
   /** Secret holding the API key; a provider shows up once its key is saved. */
   secret: string
   billingUrl: string
-  /** USD per million tokens, by model. Models not listed use `*`. */
-  prices: Record<string, { input: number; output: number }>
+  /**
+   * USD per million tokens, by model. Models not listed use `*`; a null rate means the app has
+   * no published price for that model, so its tokens are counted but not turned into a figure.
+   */
+  prices: Record<string, { input: number; output: number } | null>
   note?: string
 }
 
@@ -35,6 +38,45 @@ const PROVIDERS: Record<string, ProviderInfo> = {
       '*': { input: 0.15, output: 0.6 }
     },
     note: 'On the free tier nothing is billed; the cost shows what the same use would cost on a paid plan.'
+  },
+  anthropic: {
+    name: 'Claude (Anthropic)',
+    secret: 'anthropic-api-key',
+    billingUrl: 'https://console.anthropic.com/settings/billing',
+    // Anthropic's published per-million-token rates. Models not listed are counted, not priced.
+    prices: {
+      'claude-opus-5': { input: 5, output: 25 },
+      'claude-opus-4-8': { input: 5, output: 25 },
+      'claude-opus-4-7': { input: 5, output: 25 },
+      'claude-sonnet-5': { input: 3, output: 15 },
+      'claude-sonnet-4-6': { input: 3, output: 15 },
+      'claude-haiku-4-5': { input: 1, output: 5 },
+      'claude-fable-5': { input: 10, output: 50 },
+      '*': null
+    },
+    note: 'Separate from a Claude Pro or Max subscription, which does not cover API use.'
+  },
+  openai: {
+    name: 'ChatGPT (OpenAI)',
+    secret: 'openai-api-key',
+    billingUrl: 'https://platform.openai.com/usage',
+    prices: { '*': null },
+    note: 'Separate from a ChatGPT Plus subscription, which does not cover API use.'
+  },
+  gemini: {
+    name: 'Gemini (Google)',
+    secret: 'gemini-api-key',
+    billingUrl: 'https://aistudio.google.com/usage',
+    prices: { '*': null },
+    note: 'Separate from a Google AI subscription. Usage inside the free tier is not billed.'
+  },
+  openrouter: {
+    name: 'OpenRouter',
+    secret: 'openrouter-api-key',
+    billingUrl: 'https://openrouter.ai/activity',
+    // Rates differ per model and change as OpenRouter adds them, so calls are counted only.
+    prices: { '*': null },
+    note: 'OpenRouter prices each model differently; its activity page has the exact spend and the credit left.'
   }
 }
 
@@ -119,9 +161,10 @@ export function recordLimits(provider: string, model: string, res: Response): vo
   })
 }
 
-function cost(provider: ProviderInfo, model: string, input: number, output: number): number {
+/** USD for one row, or null when no rate is published for that model. */
+function cost(provider: ProviderInfo, model: string, input: number, output: number): number | null {
   const p = provider.prices[model] ?? provider.prices['*']
-  return (input * p.input + output * p.output) / 1_000_000
+  return p ? (input * p.input + output * p.output) / 1_000_000 : null
 }
 
 interface UsageRow {
@@ -145,13 +188,18 @@ export function getApiUsage(): ApiUsageSummary[] {
         .all(id) as unknown as UsageRow[]
       const sum = (filter: (r: UsageRow) => boolean): ApiUsageSummary['today'] =>
         rows.filter(filter).reduce(
-          (acc, r) => ({
-            requests: acc.requests + r.requests,
-            inputTokens: acc.inputTokens + r.input_tokens,
-            outputTokens: acc.outputTokens + r.output_tokens,
-            cost: acc.cost + cost(info, r.model, r.input_tokens, r.output_tokens)
-          }),
-          { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0 }
+          (acc, r) => {
+            const spent = cost(info, r.model, r.input_tokens, r.output_tokens)
+            return {
+              requests: acc.requests + r.requests,
+              inputTokens: acc.inputTokens + r.input_tokens,
+              outputTokens: acc.outputTokens + r.output_tokens,
+              cost: acc.cost + (spent ?? 0),
+              // Requests on a model with no published rate: counted, but left out of the figure.
+              unpricedRequests: acc.unpricedRequests + (spent === null ? r.requests : 0)
+            }
+          },
+          { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0, unpricedRequests: 0 }
         )
       const balance = getBalance(id)
       const total = sum(() => true)

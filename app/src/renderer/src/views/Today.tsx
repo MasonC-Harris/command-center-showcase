@@ -1,31 +1,44 @@
 import { useEffect, useState } from 'react'
-import type { AccountScope, CalendarEvent, EmailSummary, Task, TodayData } from '@shared/types'
+import type {
+  AccountScope,
+  CalendarEvent,
+  ChatTurn,
+  EmailSummary,
+  Task,
+  TodayData
+} from '@shared/types'
 import { Icon } from '../components/Icon'
-import { ago, dayLabel, due, greeting, longDate, time } from '../format'
+import { ago, dayLabel, due, time } from '../format'
 import { colorsByAddress } from '../accountColors'
+import { AssignmentsTile } from '../components/AssignmentsTile'
+import { DailyBrief } from '../components/DailyBrief'
 import { EmailLabels } from '../components/EmailLabels'
 
 export function Today({
   data,
   scope,
+  briefTurns,
+  setBriefTurns,
   onTaskToggle,
-  onOpenEmail
+  onOpenEmail,
+  onReload,
+  onConnectCanvas
 }: {
   data: TodayData
   scope: AccountScope
+  /** Brief follow-up thread, held by the app so switching views doesn't lose it. */
+  briefTurns: ChatTurn[]
+  setBriefTurns: React.Dispatch<React.SetStateAction<ChatTurn[]>>
   onTaskToggle: (t: Task) => void
   onOpenEmail: (id: string) => void
+  onReload: () => void
+  onConnectCanvas: () => void
 }): React.JSX.Element {
   const now = useNow()
 
   return (
     <div className="bento">
-      <section className="tile span-2 greeting">
-        <h1>{greeting(now)}</h1>
-        <div className="date">{longDate(now)}</div>
-        <div className="brief-label">Daily brief</div>
-        <p className="brief">{data.brief}</p>
-      </section>
+      <DailyBrief data={data} now={now} turns={briefTurns} setTurns={setBriefTurns} />
 
       <NextUp events={data.upcoming} now={now} />
 
@@ -33,13 +46,17 @@ export function Today({
       <EmailTile title="Needs reply" emails={data.needsReply} onOpenEmail={onOpenEmail} />
       <TasksTile tasks={data.tasks} now={now} onToggle={onTaskToggle} />
 
+      <AssignmentsTile data={data.assignments} onReload={onReload} onConnect={onConnectCanvas} />
+
       <ScheduleTile
         events={data.schedule}
         allDay={data.allDay}
         now={now}
         colors={
           scope === null
-            ? colorsByAddress(data.accounts.filter((a) => a.provider !== 'demo'))
+            ? colorsByAddress(
+                data.accounts.filter((a) => a.provider !== 'demo' && a.provider !== 'canvas')
+              )
             : null
         }
       />
@@ -283,18 +300,22 @@ function ScheduleTile({
 }
 
 function StatsTile({ data }: { data: TodayData }): React.JSX.Element {
-  const stats = [
+  const stats: { label: string; value: number; wide?: boolean }[] = [
     { label: 'Unread', value: data.stats.unread },
     { label: 'Need reply', value: data.stats.needsReply },
     { label: 'Meetings today', value: data.stats.meetingsToday },
-    { label: 'Tasks due', value: data.stats.tasksDue }
+    { label: 'Tasks due', value: data.stats.tasksDue },
+    // Only once there is school work to count; it spans the row so the grid stays even.
+    ...(data.assignments.connected
+      ? [{ label: 'Assignments to do', value: data.stats.assignmentsDue, wide: true }]
+      : [])
   ]
   return (
     <section className="tile">
       <header className="tile-header">Quick stats</header>
       <div className="stats">
         {stats.map((s) => (
-          <div key={s.label} className="stat">
+          <div key={s.label} className={`stat ${s.wide ? 'stat-wide' : ''}`}>
             <span className="stat-value">{s.value}</span>
             <span className="stat-label">{s.label}</span>
           </div>

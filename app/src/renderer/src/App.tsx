@@ -39,9 +39,10 @@ function readSavedScope(): AccountScope {
 function App(): React.JSX.Element {
   const [view, setView] = useState<ViewId>('today')
   const [savedScope, setSavedScope] = useState<AccountScope>(readSavedScope)
-  const { data, error, toggleTask } = useTodayData(savedScope)
+  const { data, error, reload, toggleTask } = useTodayData(savedScope)
+  // Mail accounts only: Canvas brings assignments, so it is not something to scope a view to.
   const accounts = useMemo(
-    () => (data?.accounts ?? []).filter((a) => a.provider !== 'demo'),
+    () => (data?.accounts ?? []).filter((a) => a.provider !== 'demo' && a.provider !== 'canvas'),
     [data?.accounts]
   )
   // A saved account that has since been disconnected falls back to all accounts.
@@ -60,6 +61,8 @@ function App(): React.JSX.Element {
   const [chatOpen, setChatOpen] = useState(false)
   // Chat history lives here so closing the panel doesn't lose it; it's gone when the app quits.
   const [chatTurns, setChatTurns] = useState<ChatTurn[]>([])
+  // Same for follow-ups asked from the Today brief, which survive leaving the view.
+  const [briefTurns, setBriefTurns] = useState<ChatTurn[]>([])
   const [inboxQuery, setInboxQuery] = useState<{ text: string; nonce: number; openId?: string }>({
     text: '',
     nonce: 0
@@ -72,13 +75,22 @@ function App(): React.JSX.Element {
   const bindings = useBindings()
   useEffect(() => void loadBindings(), [])
   const [settingsFocus, setSettingsFocus] = useState<string | null>(null)
+  // Plain navigation drops any pending "scroll to this section" request in Settings.
+  const goTo = useCallback((next: ViewId) => {
+    setSettingsFocus(null)
+    setView(next)
+  }, [])
+  const openCanvasSettings = useCallback(() => {
+    setSettingsFocus('canvas')
+    setView('settings')
+  }, [])
 
   // Bindings come from the shortcuts registry so Settings can rebind them.
   useShortcuts({
     palette: () => setPaletteOpen((open) => !open),
     'chat.toggle': () => setChatOpen((open) => !open),
     'scope.all': () => selectScope(null),
-    ...Object.fromEntries(VIEWS.map((v) => [`view.${v.id}`, () => setView(v.id)]))
+    ...Object.fromEntries(VIEWS.map((v) => [`view.${v.id}`, () => goTo(v.id)]))
   })
 
   const commands = useMemo<PaletteCommand[]>(
@@ -89,7 +101,7 @@ function App(): React.JSX.Element {
         icon: v.icon,
         hint: formatBinding(bindings[`view.${v.id}`]),
         keywords: 'open view switch',
-        run: () => setView(v.id)
+        run: () => goTo(v.id)
       })),
       ...(accounts.length > 1
         ? [
@@ -112,10 +124,10 @@ function App(): React.JSX.Element {
         : []),
       {
         id: 'chat',
-        label: 'Ask Groq',
+        label: 'Ask the assistant',
         icon: 'chat',
         hint: formatBinding(bindings['chat.toggle']),
-        keywords: 'chat assistant ai question llm',
+        keywords: 'chat assistant ai question llm claude chatgpt gemini groq',
         run: () => setChatOpen(true)
       },
       {
@@ -144,6 +156,13 @@ function App(): React.JSX.Element {
           setView('settings')
           void window.api.connectOutlook().catch(() => undefined)
         }
+      },
+      {
+        id: 'connect-canvas',
+        label: 'Connect Canvas (school assignments)',
+        icon: 'school',
+        keywords: 'canvas school class course assignment homework due instructure lms student',
+        run: openCanvasSettings
       },
       {
         id: 'connect-google',
@@ -177,7 +196,7 @@ function App(): React.JSX.Element {
         run: () => window.location.reload()
       }
     ],
-    [accounts, selectScope, bindings]
+    [accounts, selectScope, bindings, goTo, openCanvasSettings]
   )
 
   const closePalette = useCallback(() => setPaletteOpen(false), [])
@@ -189,9 +208,9 @@ function App(): React.JSX.Element {
   useEffect(
     () =>
       window.api.onNavigate((target) => {
-        if (VIEWS.some((v) => v.id === target)) setView(target as ViewId)
+        if (VIEWS.some((v) => v.id === target)) goTo(target as ViewId)
       }),
-    []
+    [goTo]
   )
 
   const activeIndex = VIEWS.findIndex((v) => v.id === view)
@@ -217,7 +236,7 @@ function App(): React.JSX.Element {
               key={v.id}
               className="nav-item"
               aria-current={v.id === view ? 'page' : undefined}
-              onClick={() => setView(v.id)}
+              onClick={() => goTo(v.id)}
             >
               <Icon name={v.icon} />
               {v.label}
@@ -245,7 +264,7 @@ function App(): React.JSX.Element {
             <button
               className={`pill ${chatOpen ? 'pill-active' : ''}`}
               onClick={() => setChatOpen((o) => !o)}
-              title={`Chat with Groq (${formatBinding(bindings['chat.toggle'])})`}
+              title={`Chat with the assistant (${formatBinding(bindings['chat.toggle'])})`}
             >
               <Icon name="chat" size={12} />
               Ask
@@ -296,7 +315,16 @@ function App(): React.JSX.Element {
         <div className="content">
           {error && <div className="placeholder">Couldn&apos;t load data: {error}</div>}
           {!error && view === 'today' && data && (
-            <Today data={data} scope={scope} onTaskToggle={toggleTask} onOpenEmail={openEmail} />
+            <Today
+              data={data}
+              scope={scope}
+              briefTurns={briefTurns}
+              setBriefTurns={setBriefTurns}
+              onTaskToggle={toggleTask}
+              onOpenEmail={openEmail}
+              onReload={() => void reload()}
+              onConnectCanvas={openCanvasSettings}
+            />
           )}
           {view === 'inbox' && (
             <Inbox

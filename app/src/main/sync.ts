@@ -1,5 +1,13 @@
 import { powerMonitor } from 'electron'
-import type { Account, Provider, SyncStatus } from '../shared/types'
+import { isMailProvider, type Account, type Provider, type SyncStatus } from '../shared/types'
+import {
+  canvasAccountId,
+  forgetCanvasToken,
+  parseCanvasHost,
+  saveCanvasToken,
+  verifyToken
+} from './canvas/api'
+import { syncCanvasAssignments } from './canvas/assignments'
 import { classifyPending } from './classifier/queue'
 import { notifyChanged } from './events'
 import { audit, getDb } from './db'
@@ -57,6 +65,8 @@ async function syncAccount(id: string): Promise<void> {
       await syncOutlookCalendar(db, id)
     } else if (row.provider === 'icloud') {
       state.icloud = await icloud.syncIcloudMail(db, id, state.icloud)
+    } else if (row.provider === 'canvas') {
+      await syncCanvasAssignments(db, id)
     }
     applyClearedCutoff(id)
     db.prepare(
@@ -101,9 +111,13 @@ async function addAccount(
      ON CONFLICT(id) DO UPDATE SET status = 'connected', last_error = NULL`
   ).run(accountId, provider, email)
   clearDemoData(db)
-  // Outlook is the user's main account; otherwise the first account connected becomes main.
+  // Outlook is the user's main account; otherwise the first account connected becomes main. Canvas
+  // brings no mail, so it never becomes the main account.
   const primary = getPrimaryAccountId()
-  if (!primary || (provider === 'outlook' && !primary.startsWith('outlook:'))) {
+  if (
+    isMailProvider(provider) &&
+    (!primary || (provider === 'outlook' && !primary.startsWith('outlook:')))
+  ) {
     setPrimaryAccountId(accountId)
   }
   audit('user', 'account.connect', accountId)
@@ -126,15 +140,34 @@ export const connectOutlook = (): Promise<Account> => addAccount('outlook', micr
 export const connectIcloud = (address: string, appPassword: string): Promise<Account> =>
   addAccount('icloud', () => icloud.signIn(address, appPassword))
 
+/**
+ * Canvas with a user access token. The token is checked against the school's Canvas before it is
+ * stored, so a typo in the address or a stale token fails here instead of at the next sync.
+ */
+export const connectCanvas = (baseUrl: string, token: string): Promise<Account> =>
+  addAccount('canvas', async () => {
+    const host = parseCanvasHost(baseUrl)
+    const trimmed = token.trim()
+    if (!trimmed) throw new Error('Paste the access token from Canvas.')
+    const user = await verifyToken(host, trimmed)
+    const accountId = canvasAccountId(host)
+    saveCanvasToken(accountId, trimmed)
+    return { email: user.loginId ?? user.name, accountId }
+  })
+
 export async function disconnectAccount(id: string): Promise<void> {
   if (id.startsWith('demo-'))
     throw new Error('Demo accounts go away on their own once a real account is connected.')
   if (id.startsWith('google:')) await google.signOut(id)
   else if (id.startsWith('outlook:')) microsoft.signOut(id)
   else if (id.startsWith('icloud:')) icloud.signOut(id)
-  getDb().prepare('DELETE FROM accounts WHERE id = ?').run(id) // cascades to emails and events
+  else if (id.startsWith('canvas:')) forgetCanvasToken(id)
+  // Cascades to this account's mail, events and assignments.
+  getDb().prepare('DELETE FROM accounts WHERE id = ?').run(id)
   if (getPrimaryAccountId() === id) {
-    setPrimaryAccountId(listAccounts().find((a) => a.provider !== 'demo')?.id ?? null)
+    setPrimaryAccountId(
+      listAccounts().find((a) => a.provider !== 'demo' && isMailProvider(a.provider))?.id ?? null
+    )
   }
   audit('user', 'account.disconnect', id)
   notifyChanged()

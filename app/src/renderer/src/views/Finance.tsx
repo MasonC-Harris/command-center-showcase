@@ -100,7 +100,7 @@ export function Finance({ onOpenEmail }: { onOpenEmail: (id: string) => void }):
         <div className="muted finance-note">
           <Icon name="wallet" size={12} /> Private by design: items live in this device&apos;s
           database. Scanning sends only sender, subject, date and a short preview of recent
-          bill-like mail to Groq, never the full message, and only when you press Scan.
+          bill-like mail to the AI provider, never the full message, and only when you press Scan.
         </div>
         <button className="btn" onClick={() => setEditing('new')}>
           <Icon name="plus" size={12} /> Add
@@ -112,8 +112,8 @@ export function Finance({ onOpenEmail }: { onOpenEmail: (id: string) => void }):
 
       {scan && !scan.hasKey && (
         <div className="muted finance-status">
-          Scanning needs a Groq API key. Add one in Settings → Assistant. You can still add items by
-          hand.
+          Scanning needs an AI provider. Connect one in Settings → Assistant. You can still add
+          items by hand.
         </div>
       )}
       {scan?.running && (
@@ -236,7 +236,7 @@ function usd(amount: number): string {
 const compact = (n: number): string =>
   new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(n)
 
-/** Spend and remaining credit for the paid APIs (Jev, Groq, and any added later). */
+/** Spend and remaining credit for the paid APIs (Jev and the AI providers). */
 function ApiUsageTile(): React.JSX.Element {
   const [usage, setUsage] = useState<ApiUsageSummary[] | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
@@ -301,7 +301,10 @@ function ApiUsageTile(): React.JSX.Element {
               ).map(([label, t]) => (
                 <div key={label}>
                   <div className="muted">{label}</div>
-                  <div className="api-cost">{usd(t.cost)}</div>
+                  {/* Every call is counted; only models with a published rate reach the figure. */}
+                  <div className="api-cost">
+                    {t.unpricedRequests === t.requests && t.requests > 0 ? '—' : usd(t.cost)}
+                  </div>
                   <div className="muted">
                     {t.requests} calls · {compact(t.inputTokens + t.outputTokens)} tokens
                   </div>
@@ -326,6 +329,13 @@ function ApiUsageTile(): React.JSX.Element {
               <div className="muted api-usage-sub">
                 Includes {p.estimatedRequests} earlier calls made before tracking started, with
                 estimated token counts.
+              </div>
+            )}
+            {p.total.unpricedRequests > 0 && (
+              <div className="muted api-usage-sub">
+                {p.total.unpricedRequests} of {p.total.requests} calls used a model this app has no
+                published rate for, so their tokens are counted but not costed. The provider&apos;s
+                own billing page has the real figure.
               </div>
             )}
             {p.note && <div className="muted api-usage-sub">{p.note}</div>}

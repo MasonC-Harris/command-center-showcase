@@ -1,22 +1,18 @@
-/* Design tokens. Dark, minimal, one accent. The accent is reserved for urgency and priority signals. */
+/*
+ * Design tokens. Every colour in the app comes from here, so a theme is one block of custom
+ * properties and nothing else has to know which one is on.
+ *
+ * Themes are selected by `data-theme` on <html> (see renderer/src/theme.ts). The selectors are
+ * plain attribute selectors rather than `:root[data-theme]`, so the same blocks also work on a
+ * nested element: that is how the theme picker renders a live swatch of each theme without
+ * repeating any of these values in JavaScript.
+ *
+ * Specificity is equal across every block, so order decides: the shared `:root` block holds shape,
+ * type and motion plus the dark palette as the pre-theme fallback, and each theme below overrides
+ * the colours. The one accent is reserved for urgency and priority signals.
+ */
+
 :root {
-  --bg: #0b0b0d;
-  --surface: #111114;
-  --surface-hover: #17171b;
-  --surface-raised: #1c1c21;
-
-  --border: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.12);
-
-  --text: #ececef;
-  --text-muted: #a1a1aa;
-  --text-faint: #65656e;
-
-  /* Muted indigo, will become configurable in settings. */
-  --accent: #8189e0;
-  --accent-soft: rgba(129, 137, 224, 0.14);
-  --accent-line: rgba(129, 137, 224, 0.45);
-
   --radius: 8px;
   --radius-sm: 6px;
 
@@ -25,6 +21,181 @@
 
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --fast: 160ms;
+}
+
+/* Dark: the original look, and what paints before a saved theme is applied. */
+:root,
+[data-theme='dark'] {
+  --bg: #0b0b0d;
+  --surface: #111114;
+  --surface-hover: #17171b;
+  --surface-raised: #1c1c21;
+
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-hover: rgba(255, 255, 255, 0.2);
+  --border-focus: rgba(255, 255, 255, 0.24);
+
+  --text: #ececef;
+  --text-muted: #a1a1aa;
+  --text-faint: #65656e;
+
+  /* Muted indigo. */
+  --accent: #8189e0;
+  --accent-soft: rgba(129, 137, 224, 0.14);
+  --accent-line: rgba(129, 137, 224, 0.45);
+
+  /* Hover for the inverted primary button, which sits on var(--text). */
+  --primary-hover: #ffffff;
+  --backdrop: rgba(0, 0, 0, 0.5);
+  --shadow: rgba(0, 0, 0, 0.5);
+  /* Washes used to pick out today's column, all-day events and out-of-month cells. */
+  --tint: rgba(255, 255, 255, 0.07);
+  --tint-soft: rgba(255, 255, 255, 0.015);
+
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --bg: #f4f4f6;
+  --surface: #ffffff;
+  --surface-hover: #f1f1f4;
+  --surface-raised: #e9e9ee;
+
+  --border: rgba(0, 0, 0, 0.09);
+  --border-strong: rgba(0, 0, 0, 0.15);
+  --border-hover: rgba(0, 0, 0, 0.22);
+  --border-focus: rgba(0, 0, 0, 0.28);
+
+  --text: #1a1a1f;
+  --text-muted: #55555f;
+  --text-faint: #74747e;
+
+  --accent: #5159cc;
+  --accent-soft: rgba(81, 89, 204, 0.12);
+  --accent-line: rgba(81, 89, 204, 0.5);
+
+  --primary-hover: #000000;
+  --backdrop: rgba(18, 18, 24, 0.35);
+  --shadow: rgba(20, 24, 40, 0.18);
+  --tint: rgba(0, 0, 0, 0.05);
+  --tint-soft: rgba(0, 0, 0, 0.025);
+
+  color-scheme: light;
+}
+
+/* Midnight blue. */
+[data-theme='midnight'] {
+  --bg: #080d18;
+  --surface: #0f1726;
+  --surface-hover: #152033;
+  --surface-raised: #1b2841;
+
+  --border: rgba(140, 180, 255, 0.1);
+  --border-strong: rgba(140, 180, 255, 0.17);
+  --border-hover: rgba(140, 180, 255, 0.26);
+  --border-focus: rgba(160, 200, 255, 0.32);
+
+  --text: #e8edf7;
+  --text-muted: #9fadc6;
+  --text-faint: #6b7a93;
+
+  --accent: #4f9cf9;
+  --accent-soft: rgba(79, 156, 249, 0.14);
+  --accent-line: rgba(79, 156, 249, 0.45);
+
+  --primary-hover: #ffffff;
+  --backdrop: rgba(2, 6, 16, 0.6);
+  --shadow: rgba(0, 4, 16, 0.6);
+  --tint: rgba(140, 180, 255, 0.08);
+  --tint-soft: rgba(140, 180, 255, 0.025);
+
+  color-scheme: dark;
+}
+
+/* Deep forest. */
+[data-theme='forest'] {
+  --bg: #070d0a;
+  --surface: #0d1511;
+  --surface-hover: #131d17;
+  --surface-raised: #19261e;
+
+  --border: rgba(150, 230, 180, 0.09);
+  --border-strong: rgba(150, 230, 180, 0.16);
+  --border-hover: rgba(150, 230, 180, 0.24);
+  --border-focus: rgba(170, 240, 200, 0.3);
+
+  --text: #e6efe8;
+  --text-muted: #9db2a4;
+  --text-faint: #68796e;
+
+  --accent: #52b788;
+  --accent-soft: rgba(82, 183, 136, 0.15);
+  --accent-line: rgba(82, 183, 136, 0.45);
+
+  --primary-hover: #ffffff;
+  --backdrop: rgba(2, 10, 6, 0.6);
+  --shadow: rgba(0, 10, 5, 0.6);
+  --tint: rgba(150, 230, 180, 0.07);
+  --tint-soft: rgba(150, 230, 180, 0.022);
+
+  color-scheme: dark;
+}
+
+/* Light forest. */
+[data-theme='grove'] {
+  --bg: #eef3ec;
+  --surface: #ffffff;
+  --surface-hover: #e9f0e7;
+  --surface-raised: #dfe9dc;
+
+  --border: rgba(20, 60, 35, 0.11);
+  --border-strong: rgba(20, 60, 35, 0.18);
+  --border-hover: rgba(20, 60, 35, 0.26);
+  --border-focus: rgba(20, 60, 35, 0.32);
+
+  --text: #16231a;
+  --text-muted: #46584b;
+  --text-faint: #67796c;
+
+  --accent: #2a7049;
+  --accent-soft: rgba(42, 112, 73, 0.12);
+  --accent-line: rgba(42, 112, 73, 0.5);
+
+  --primary-hover: #000000;
+  --backdrop: rgba(16, 32, 20, 0.35);
+  --shadow: rgba(20, 50, 30, 0.18);
+  --tint: rgba(20, 60, 35, 0.06);
+  --tint-soft: rgba(20, 60, 35, 0.028);
+
+  color-scheme: light;
+}
+
+/* Ember. */
+[data-theme='ember'] {
+  --bg: #0e0906;
+  --surface: #16100b;
+  --surface-hover: #1e1611;
+  --surface-raised: #281c15;
+
+  --border: rgba(255, 170, 120, 0.1);
+  --border-strong: rgba(255, 170, 120, 0.17);
+  --border-hover: rgba(255, 170, 120, 0.26);
+  --border-focus: rgba(255, 190, 150, 0.32);
+
+  --text: #f6eae4;
+  --text-muted: #c3a596;
+  --text-faint: #8d7265;
+
+  --accent: #ff6b35;
+  --accent-soft: rgba(255, 107, 53, 0.15);
+  --accent-line: rgba(255, 107, 53, 0.5);
+
+  --primary-hover: #ffffff;
+  --backdrop: rgba(12, 4, 0, 0.6);
+  --shadow: rgba(12, 3, 0, 0.6);
+  --tint: rgba(255, 170, 120, 0.08);
+  --tint-soft: rgba(255, 170, 120, 0.025);
 
   color-scheme: dark;
 }

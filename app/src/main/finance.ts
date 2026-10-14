@@ -7,18 +7,18 @@ import type {
   FinanceScanStatus,
   FinanceStatus
 } from '../shared/types'
-import { GROQ_MODEL, GroqAuthError, chatJson } from './assistant/groq'
+import { assistantReady, completeJson, LlmAuthError, type LlmMessage } from './assistant/llm'
+import { activeProvider } from './assistant/providers'
 import { audit, getDb, transaction } from './db'
 import { notifyChanged } from './events'
-import { readSecret } from './secrets'
 
-// Mail scanning is manual (button only). Groq sees sender, subject, date and the snippet, never
-// the body. Emails that were scanned and held nothing are remembered in `settings` so they are
-// not sent again.
+// Mail scanning is manual (button only). The AI provider sees sender, subject, date and the
+// snippet, never the body. Emails that were scanned and held nothing are remembered in
+// `settings` so they are not sent again.
 
 const SCAN_DAYS = 60
 const MAX_PER_SCAN = 150
-// One request at a time: the Groq free tier allows about 8,000 tokens a minute per model.
+// One request at a time, to stay inside the smallest free tier any provider offers.
 const CONCURRENCY = 1
 const SCANNED_PREFIX = 'finance_scanned:'
 // Words that show up when money actually moved or is owed. A bare "$" is not enough: offers and
@@ -146,7 +146,7 @@ let scan: FinanceScanStatus = {
 }
 
 export function getFinanceScanStatus(): FinanceScanStatus {
-  return { ...scan, hasKey: readSecret('groq-api-key') !== null }
+  return { ...scan, hasKey: assistantReady() }
 }
 
 interface Candidate {
@@ -320,27 +320,20 @@ const SYSTEM_PROMPT = [
   'Only report an amount that appears in the text; never guess.'
 ].join('\n')
 
-/** Asks Groq what the email is; returns the extracted item only if it passes every check. */
+/** Asks the model what the email is; returns the item only if it passes every check. */
 async function judge(
-  key: string,
   c: Candidate
 ): Promise<{ data: Extracted; kind: FinanceKind; cents: number } | { rejected: string }> {
   const sender = c.from_name ? `${c.from_name} <${c.from_addr}>` : c.from_addr
-  const { data } = await chatJson<Extracted>(
-    key,
-    [
-      { role: 'system', content: SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: `Today is ${new Date().toDateString()}.\nFrom: ${sender}\nDate: ${c.received_at}\nSubject: ${c.subject}\nPreview: ${c.snippet}`
-      }
-    ],
-    'finance_item',
-    SCHEMA,
-    700,
-    GROQ_MODEL
-  )
-  audit('groq', 'finance.scan', c.id)
+  const messages: LlmMessage[] = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: `Today is ${new Date().toDateString()}.\nFrom: ${sender}\nDate: ${c.received_at}\nSubject: ${c.subject}\nPreview: ${c.snippet}`
+    }
+  ]
+  const { data } = await completeJson<Extracted>(messages, 'finance_item', SCHEMA, 700)
+  audit(activeProvider(), 'finance.scan', c.id)
 
   const kind = KIND_BY_TYPE[data.email_type]
   if (!kind) return { rejected: data.email_type.replace(/_/g, ' ') }
@@ -358,8 +351,8 @@ async function judge(
   return { data, kind, cents }
 }
 
-async function extract(key: string, c: Candidate): Promise<void> {
-  const result = await judge(key, c)
+async function extract(c: Candidate): Promise<void> {
+  const result = await judge(c)
   if (!('rejected' in result)) {
     const { data, kind, cents } = result
     const due =
@@ -394,7 +387,7 @@ async function extract(key: string, c: Candidate): Promise<void> {
  * Runs items found by an older scan through the stricter check once. Items that fail are set to
  * ignored (not deleted), and items the user edited are left alone.
  */
-async function recheckOldItems(key: string): Promise<void> {
+async function recheckOldItems(): Promise<void> {
   const db = getDb()
   const done = db.prepare('SELECT value FROM settings WHERE key = ?').get(RECHECK_KEY) as
     { value: string } | undefined
@@ -410,13 +403,13 @@ async function recheckOldItems(key: string): Promise<void> {
   scan.total += rows.length
   notifyChanged()
   for (const r of rows) {
-    const result = await judge(key, r)
+    const result = await judge(r)
     if ('rejected' in result) {
       db.prepare("UPDATE finance_items SET status = 'ignored', notes = ? WHERE id = ?").run(
         `Removed by the stricter scan: ${result.rejected}.`,
         r.item_id
       )
-      audit('groq', 'finance.recheck-ignored', r.item_id)
+      audit(activeProvider(), 'finance.recheck-ignored', r.item_id)
     }
     scan.done++
     notifyChanged()
@@ -428,9 +421,8 @@ async function recheckOldItems(key: string): Promise<void> {
 
 export async function scanFinanceMail(): Promise<FinanceScanStatus> {
   if (scan.running) return getFinanceScanStatus()
-  const key = readSecret('groq-api-key')
-  if (!key) {
-    scan = { ...scan, error: 'Add a Groq API key in Settings → Assistant to scan mail.' }
+  if (!assistantReady()) {
+    scan = { ...scan, error: 'Connect an AI provider in Settings → Assistant to scan mail.' }
     return getFinanceScanStatus()
   }
   const queue = findCandidates()
@@ -444,10 +436,10 @@ export async function scanFinanceMail(): Promise<FinanceScanStatus> {
       const c = queue.shift()
       if (!c) return
       try {
-        await extract(key, c)
+        await extract(c)
       } catch (err) {
         // Not marked as scanned, so a later scan retries it.
-        if (err instanceof GroqAuthError) aborted = true
+        if (err instanceof LlmAuthError) aborted = true
         scan.error = err instanceof Error ? err.message : String(err)
       }
       scan.done++
@@ -456,9 +448,9 @@ export async function scanFinanceMail(): Promise<FinanceScanStatus> {
   }
   try {
     try {
-      await recheckOldItems(key)
+      await recheckOldItems()
     } catch (err) {
-      if (err instanceof GroqAuthError) aborted = true
+      if (err instanceof LlmAuthError) aborted = true
       scan.error = err instanceof Error ? err.message : String(err)
     }
     await Promise.all(Array.from({ length: CONCURRENCY }, worker))

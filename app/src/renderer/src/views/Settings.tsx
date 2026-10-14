@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { Account, LaunchAtLogin, Provider } from '@shared/types'
 import { AssistantSettings } from '../components/AssistantSettings'
+import { CanvasSettings } from '../components/CanvasSettings'
 import { ClassifierSettings } from '../components/ClassifierSettings'
 import { ShortcutSettings } from '../components/ShortcutSettings'
+import { ThemeSettings } from '../components/ThemeSettings'
 import { useDataChanged, useSyncStatus } from '../hooks'
 import { ago } from '../format'
 
@@ -84,8 +86,10 @@ export function Settings({
     }
   }
 
-  const real = accounts.filter((a) => a.provider !== 'demo')
-  const isDemo = real.length === 0 && accounts.length > 0
+  // Canvas has its own section below, so it is not listed with the mail accounts.
+  const real = accounts.filter((a) => a.provider !== 'demo' && a.provider !== 'canvas')
+  // Connecting Canvas alone also clears the demo data, so "demo" means every account is demo.
+  const isDemo = accounts.length > 0 && accounts.every((a) => a.provider === 'demo')
 
   return (
     <div className="page">
@@ -259,9 +263,17 @@ export function Settings({
         </div>
       </section>
 
+      {/* Remounting on an open request lets the tile start with its form open. */}
+      <CanvasSettings
+        key={focus === 'canvas' ? 'canvas-open' : 'canvas'}
+        open={focus === 'canvas'}
+      />
+
       <ClassifierSettings />
 
       <AssistantSettings />
+
+      <ThemeSettings />
 
       <ShortcutSettings />
 

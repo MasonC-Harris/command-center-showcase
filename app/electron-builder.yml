@@ -15,7 +15,9 @@ win:
   executableName: CommandCenter
   icon: build/icon.png
   target:
+    # The installer puts it in the Start menu; the portable exe just runs where you put it.
     - nsis
+    - portable
 # Per-user install (no admin prompt) with Start menu and desktop shortcuts.
 nsis:
   oneClick: true
@@ -26,6 +28,9 @@ nsis:
   createDesktopShortcut: always
   createStartMenuShortcut: true
   runAfterFinish: true
+# Single file, no install, no shortcuts: copy it anywhere and double-click.
+portable:
+  artifactName: ${name}-${version}-portable.${ext}
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

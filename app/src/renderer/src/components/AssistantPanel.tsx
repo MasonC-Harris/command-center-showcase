@@ -6,7 +6,7 @@ import { Icon } from './Icon'
 type Mode = 'summary' | 'draft' | 'task' | null
 
 /**
- * Groq actions for the open email. Nothing is sent to Groq until a button is pressed, and drafts
+ * Assistant actions for the open email. Nothing is sent to the provider until a button is pressed,
  * are never sent anywhere: the user copies them into Gmail or Outlook.
  */
 export function AssistantPanel({ email }: { email: EmailSummary }): React.JSX.Element {
@@ -79,7 +79,7 @@ export function AssistantPanel({ email }: { email: EmailSummary }): React.JSX.El
         <button className="btn" disabled={!hasKey || busy} onClick={() => void makeTask()}>
           Make task
         </button>
-        {hasKey === false && <span className="muted">Add a Groq API key in Settings.</span>}
+        {hasKey === false && <span className="muted">Connect an AI provider in Settings.</span>}
         {busy && <span className="muted">Working…</span>}
         {mode && !busy && (
           <button className="btn ghost icon-only" title="Hide" onClick={() => setMode(null)}>

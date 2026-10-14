@@ -235,6 +235,82 @@ const events = [
   }
 ]
 
+// Canvas-style school work, hung off the demo school account so the Assignments tile has content.
+const assignments = [
+  {
+    title: 'Problem set 4: paging and TLBs',
+    course: 'Operating Systems',
+    code: 'CS-162',
+    kind: 'assignment',
+    day: 0,
+    h: 23,
+    m: 59,
+    points: 40
+  },
+  {
+    title: 'Systems project checkpoint 2',
+    course: 'Operating Systems',
+    code: 'CS-162',
+    kind: 'assignment',
+    day: -2,
+    h: 23,
+    m: 59,
+    points: 100,
+    missing: true
+  },
+  {
+    title: 'Reading quiz: consistency models',
+    course: 'Distributed Systems',
+    code: 'CS-262',
+    kind: 'quiz',
+    day: 0,
+    h: 11,
+    m: 0,
+    points: 10,
+    submitted: true
+  },
+  {
+    title: 'Discussion: what makes a good abstraction?',
+    course: 'Distributed Systems',
+    code: 'CS-262',
+    kind: 'discussion',
+    day: 2,
+    h: 23,
+    m: 59,
+    points: 15
+  },
+  {
+    title: 'Lab 6 writeup',
+    course: 'Linear Algebra',
+    code: 'MATH-215',
+    kind: 'assignment',
+    day: 4,
+    h: 17,
+    m: 0,
+    points: 25
+  },
+  {
+    title: 'Peer review for Dana',
+    course: 'Technical Writing',
+    code: 'ENGL-310',
+    kind: 'peer_review',
+    day: 9,
+    h: 23,
+    m: 59,
+    points: 5
+  },
+  {
+    title: 'Midterm essay: systems that outlive their authors',
+    course: 'Technical Writing',
+    code: 'ENGL-310',
+    kind: 'assignment',
+    day: 18,
+    h: 23,
+    m: 59,
+    points: 150
+  }
+]
+
 const tasks = [
   { title: 'Send outstanding parts list to Prof. Alvarez', day: 0, h: 17, source: 1 },
   { title: 'Export latest mocks for design review', day: 0, h: 15, source: 2 },
@@ -246,6 +322,7 @@ function deleteDemoRows(db: DatabaseSync): void {
   // Children before parents so foreign keys are satisfied.
   db.prepare('DELETE FROM tasks WHERE id LIKE ?').run(`${DEMO_PREFIX}%`)
   db.prepare('DELETE FROM events WHERE id LIKE ?').run(`${DEMO_PREFIX}%`)
+  db.prepare('DELETE FROM assignments WHERE id LIKE ?').run(`${DEMO_PREFIX}%`)
   db.prepare('DELETE FROM accounts WHERE id LIKE ?').run(`${DEMO_PREFIX}%`) // cascades to emails
 }
 
@@ -309,6 +386,27 @@ export function seedDemoData(db: DatabaseSync): void {
         JSON.stringify(ev.attendees),
         ev.location,
         ev.link
+      )
+    })
+
+    const insertAssignment = db.prepare(
+      `INSERT INTO assignments
+         (id, account_id, course_id, course_name, course_code, title, kind, due, points_possible,
+          url, submitted, graded, missing, synced_at)
+       VALUES (?, 'demo-acct-school', NULL, ?, ?, ?, ?, ?, ?, NULL, ?, 0, ?, ?)`
+    )
+    assignments.forEach((a, i) => {
+      insertAssignment.run(
+        `${DEMO_PREFIX}assignment-${i}`,
+        a.course,
+        a.code,
+        a.title,
+        a.kind,
+        at(a.day, a.h, a.m),
+        a.points,
+        a.submitted ? 1 : 0,
+        a.missing ? 1 : 0,
+        minutesAgo(3)
       )
     })
 

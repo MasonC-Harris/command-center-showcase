@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ChatTaskAction, ChatTurn } from '@shared/types'
+import type { ChatTurn } from '@shared/types'
+import { ChatActionCard } from './ChatActionCard'
 import { Markdown } from './Markdown'
 
 /**
- * Slide-out chat with Groq. History is held by the parent so it survives closing the panel, and is
- * gone when the app quits. "Use my day" shares a snapshot of today's events, mail and tasks.
+ * Slide-out chat with the chosen AI provider. History is held by the parent so it survives
+ * closing the panel, and is gone when the app quits. "Use my day" shares a snapshot of today's
+ * events, mail, tasks and assignments.
  */
 export function ChatPanel({
   turns,
@@ -19,13 +21,14 @@ export function ChatPanel({
   const [includeDay, setIncludeDay] = useState(false)
   const [requestId, setRequestId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [hasKey, setHasKey] = useState<boolean | null>(null)
-  const [undone, setUndone] = useState<Set<string>>(new Set())
+  const [assistant, setAssistant] = useState<{ hasKey: boolean; label: string } | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    void window.api.getAssistantSettings().then((s) => setHasKey(s.hasKey))
+    void window.api
+      .getAssistantSettings()
+      .then((s) => setAssistant({ hasKey: s.hasKey, label: s.label }))
     box.current?.focus()
   }, [])
 
@@ -70,30 +73,15 @@ export function ChatPanel({
     }
   }
 
-  // Undo removes the task or event but leaves the card, marked as undone, so the transcript stays
-  // honest.
-  const undo = async (action: ChatTaskAction): Promise<void> => {
-    try {
-      if (action.kind === 'event' && action.eventAccountId && action.eventId) {
-        await window.api.deleteCalendarEvent(action.eventAccountId, action.eventId)
-      } else {
-        await window.api.deleteTask(action.taskId)
-      }
-      setUndone((u) => new Set(u).add(action.taskId))
-    } catch (err) {
-      setError(errorText(err))
-    }
-  }
-
   const stop = (): void => {
     if (requestId) void window.api.cancelChat(requestId)
   }
 
   return (
-    <aside className="chat-panel" aria-label="Chat with Groq">
+    <aside className="chat-panel" aria-label="Chat with the assistant">
       <header className="chat-header">
         <span className="chat-title">Ask</span>
-        <span className="hint">Groq · gpt-oss-120b</span>
+        <span className="hint">{assistant?.hasKey ? assistant.label : 'Not connected'}</span>
         <button
           className="btn ghost"
           disabled={turns.length === 0 || requestId !== null}
@@ -109,8 +97,8 @@ export function ChatPanel({
       <div className="chat-scroll" ref={scroller}>
         {turns.length === 0 && (
           <div className="chat-empty">
-            {hasKey === false
-              ? 'Add a Groq API key in Settings to start chatting.'
+            {assistant?.hasKey === false
+              ? 'Connect an AI provider in Settings to start chatting.'
               : 'Ask anything. Switch on "Use my day" to ask about your mail, calendar and tasks, like "what should I do first?"'}
           </div>
         )}
@@ -119,12 +107,7 @@ export function ChatPanel({
             {t.role === 'assistant' ? (
               <>
                 {t.actions?.map((a) => (
-                  <TaskCard
-                    key={a.taskId}
-                    action={a}
-                    undone={undone.has(a.taskId)}
-                    onUndo={() => void undo(a)}
-                  />
+                  <ChatActionCard key={a.taskId} action={a} onError={setError} />
                 ))}
                 {t.content ? (
                   <Markdown text={t.content} />
@@ -151,8 +134,8 @@ export function ChatPanel({
           ref={box}
           rows={2}
           value={input}
-          placeholder="Message Groq…  (Enter to send, Shift+Enter for a new line)"
-          disabled={hasKey === false}
+          placeholder="Send a message…  (Enter to send, Shift+Enter for a new line)"
+          disabled={assistant?.hasKey === false}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -165,7 +148,7 @@ export function ChatPanel({
         <div className="chat-controls">
           <label
             className="chat-toggle"
-            title="Shares today's events, priority mail subjects and open tasks with Groq"
+            title="Shares today's events, priority mail subjects, open tasks and assignments due with the provider"
           >
             <input
               type="checkbox"
@@ -182,7 +165,7 @@ export function ChatPanel({
             <button
               className="btn primary"
               type="submit"
-              disabled={!input.trim() || hasKey === false}
+              disabled={!input.trim() || assistant?.hasKey === false}
             >
               Send
             </button>
@@ -190,48 +173,6 @@ export function ChatPanel({
         </div>
       </form>
     </aside>
-  )
-}
-
-function TaskCard({
-  action,
-  undone,
-  onUndo
-}: {
-  action: ChatTaskAction
-  undone: boolean
-  onUndo: () => void
-}): React.JSX.Element {
-  const when = (iso: string): string =>
-    new Date(iso).toLocaleString([], {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    })
-  const isEvent = action.kind === 'event'
-  const details = isEvent
-    ? [action.detail]
-    : [
-        action.remindAt && `reminder ${when(action.remindAt)}`,
-        action.due && `due ${when(action.due)}`
-      ]
-  const noun = isEvent ? 'calendar event' : 'task'
-  return (
-    <div className={`chat-action ${undone ? 'undone' : ''}`}>
-      <span className="chat-action-text">
-        {undone ? `Removed ${noun}` : `Added ${noun}`}: <strong>{action.title}</strong>
-        {!undone &&
-          details.filter(Boolean).length > 0 &&
-          ` · ${details.filter(Boolean).join(' · ')}`}
-      </span>
-      {!undone && (
-        <button className="btn ghost" type="button" onClick={onUndo}>
-          Undo
-        </button>
-      )}
-    </div>
   )
 }
 
