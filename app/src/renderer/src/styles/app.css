@@ -759,7 +759,7 @@ button.pill:hover {
 
 .btn:hover:not(:disabled) {
   background: var(--surface-hover);
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-hover);
 }
 
 .btn:disabled {
@@ -775,8 +775,8 @@ button.pill:hover {
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: #fff;
-  border-color: #fff;
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 
 .btn.ghost {
@@ -814,7 +814,7 @@ code {
   justify-content: center;
   align-items: flex-start;
   padding-top: 12vh;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--backdrop);
   animation: fade-in 120ms var(--ease);
 }
 
@@ -826,7 +826,7 @@ code {
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   background: var(--surface);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 24px 64px var(--shadow);
   overflow: hidden;
   animation: palette-in 160ms var(--ease);
 }
@@ -1030,7 +1030,7 @@ code {
 }
 
 .text-input:focus {
-  border-color: rgba(255, 255, 255, 0.24);
+  border-color: var(--border-focus);
 }
 
 /* ---------- Corrections ---------- */
@@ -1045,7 +1045,7 @@ code {
 }
 
 .badge-button:hover {
-  border-color: rgba(255, 255, 255, 0.24);
+  border-color: var(--border-focus);
   color: var(--text);
 }
 
@@ -1072,7 +1072,7 @@ code {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 16px 40px var(--shadow);
   animation: palette-in 120ms var(--ease);
 }
 
@@ -1312,6 +1312,7 @@ code {
 .pane-body {
   flex: 1;
   min-height: 0;
+  /* Email bodies are written for a white page, so this one surface ignores the theme. */
   background: #fff;
 }
 
@@ -1386,7 +1387,7 @@ code {
 }
 
 .draft-editor:focus {
-  border-color: rgba(255, 255, 255, 0.24);
+  border-color: var(--border-focus);
 }
 
 .assistant-body .actions-row .btn {
@@ -1438,7 +1439,7 @@ button.link {
   width: min(440px, 100vw);
   border-left: 1px solid var(--border-strong);
   background: var(--bg);
-  box-shadow: -16px 0 40px rgba(0, 0, 0, 0.35);
+  box-shadow: -16px 0 40px var(--shadow);
   animation: chat-in 160ms var(--ease);
 }
 
@@ -1588,7 +1589,7 @@ button.link {
 }
 
 .chat-input textarea:focus {
-  border-color: rgba(255, 255, 255, 0.24);
+  border-color: var(--border-focus);
 }
 
 .chat-controls {
@@ -1780,7 +1781,7 @@ button.link {
 }
 
 .week-col.today {
-  background-color: rgba(255, 255, 255, 0.015);
+  background-color: var(--tint-soft);
 }
 
 .week-event {
@@ -1842,7 +1843,7 @@ button.link {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--surface-raised);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 32px var(--shadow);
   font-size: 12px;
 }
 
@@ -2021,7 +2022,7 @@ button.link {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--surface-raised);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 32px var(--shadow);
   font-size: 13px;
   animation: fade-in 140ms var(--ease);
 }
@@ -2094,7 +2095,7 @@ button.link {
 }
 
 .month-cell.outside {
-  background: rgba(255, 255, 255, 0.012);
+  background: var(--tint-soft);
 }
 
 .month-cell.outside .month-date {
@@ -2151,7 +2152,7 @@ button.link {
 }
 
 .month-event.all-day {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--tint);
 }
 
 .month-event.past {
@@ -2280,4 +2281,336 @@ button.link {
 
 .icloud-form .text-input {
   width: 240px;
+}
+
+/* ---------- Daily brief ---------- */
+
+.brief-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.brief-top > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.brief-styles {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.brief-styles .tab {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.brief-label .hint {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.brief-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.brief-headline {
+  margin-top: 0;
+  color: var(--text);
+}
+
+.brief-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  max-width: 72ch;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.brief-steps li::marker {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.brief-step-text {
+  color: var(--text);
+}
+
+.brief-step-detail {
+  display: block;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.brief-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.brief-ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.brief-ask .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------- Assignments ---------- */
+
+.assignment-ranges {
+  margin-left: auto;
+}
+
+.assignment-ranges .tab {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.assignment-list {
+  flex: 1;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 0 8px 10px;
+}
+
+.assignment-group {
+  padding: 8px 6px 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.assignment-group.overdue {
+  color: var(--accent);
+}
+
+.assignment-connect {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.row.assignment .row-meta {
+  margin-left: auto;
+  padding-left: 10px;
+}
+
+.row.assignment .row-title.link {
+  color: var(--text);
+}
+
+.row.assignment .row-title.link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.badge-missing {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.stat-wide {
+  grid-column: span 2;
+}
+
+.select-input {
+  width: 140px;
+  padding-right: 6px;
+}
+
+/* ---------- Theme picker ---------- */
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 8px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: left;
+  transition:
+    border-color var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+}
+
+.theme-card:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
+}
+
+.theme-card[aria-checked='true'] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+/* Drawn with the sampled theme's own tokens, so nothing here names a colour. */
+.theme-swatch {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 44px;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.theme-swatch-bar {
+  flex: 1;
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.theme-swatch-accent {
+  flex: none;
+  width: 8px;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.theme-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.theme-note {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.theme-custom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 4px 2px;
+}
+
+.color-input {
+  width: 48px;
+  height: 30px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+
+/* ---------- AI provider picker ---------- */
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.provider {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.provider-active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.provider-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.provider-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.provider-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.provider-maker {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.provider-model .select-input {
+  width: 100%;
+}
+
+.provider-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.provider-connect .text-input {
+  flex: 1;
+  min-width: 140px;
+}
+
+.provider-note {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* Visible to screen readers only; used for labels the layout already makes obvious. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

@@ -1,5 +1,6 @@
 import type {
   Account,
+  AssignmentsData,
   Category,
   EmailOverride,
   MailView,
@@ -14,6 +15,7 @@ import type {
   TodayData,
   TodayStats
 } from '../shared/types'
+import { getAssignmentRange, listAssignments } from './canvas/assignments'
 import { getClassifierStatus } from './classifier/queue'
 import { canWriteCalendar } from './microsoft/auth'
 import { audit, getDb } from './db'
@@ -108,7 +110,12 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`
 }
 
-function buildBrief(stats: TodayStats, upcoming: CalendarEvent[], urgent: number): string {
+function buildBrief(
+  stats: TodayStats,
+  upcoming: CalendarEvent[],
+  urgent: number,
+  assignments: AssignmentsData
+): string {
   const parts: string[] = []
   const today = upcoming.filter((e) => e.start < dayBounds().end)
   if (today.length > 0) {
@@ -125,6 +132,17 @@ function buildBrief(stats: TodayStats, upcoming: CalendarEvent[], urgent: number
   }
   if (urgent > 0)
     parts.push(`${plural(urgent, 'urgent email needs', 'urgent emails need')} a look.`)
+  const dueToday = assignments.items.filter(
+    (a) => !a.submitted && !a.done && a.due !== null && a.due < dayBounds().end
+  ).length
+  if (assignments.overdue.length > 0)
+    parts.push(
+      `${plural(assignments.overdue.length, 'assignment is', 'assignments are')} past due${
+        dueToday > 0 ? ` and ${dueToday} more due today` : ''
+      }.`
+    )
+  else if (dueToday > 0)
+    parts.push(`${plural(dueToday, 'assignment is', 'assignments are')} due today.`)
   if (stats.needsReply > 0)
     parts.push(`${plural(stats.needsReply, 'thread is', 'threads are')} waiting on a reply.`)
   if (stats.tasksDue > 0) parts.push(`${plural(stats.tasksDue, 'task is', 'tasks are')} due today.`)
@@ -260,6 +278,9 @@ export function getToday(scope: AccountScope): TodayData {
   const count = (sql: string, params: Record<string, string | null>): number =>
     (db.prepare(sql).get(params) as { n: number }).n
 
+  // School work is not scoped to a mail account: there is one Canvas account at a time.
+  const assignments = listAssignments(getAssignmentRange())
+
   const stats: TodayStats = {
     unread: count(
       `SELECT COUNT(*) AS n FROM emails e WHERE ${EMAIL_SCOPE} AND e.is_read = 0 AND ${IN_INBOX}`,
@@ -271,7 +292,11 @@ export function getToday(scope: AccountScope): TodayData {
       { scope, week }
     ),
     meetingsToday: schedule.length,
-    tasksDue: count(`SELECT COUNT(*) AS n FROM tasks WHERE status = 'open' AND due < $end`, { end })
+    tasksDue: count(`SELECT COUNT(*) AS n FROM tasks WHERE status = 'open' AND due < $end`, {
+      end
+    }),
+    assignmentsDue:
+      assignments.items.filter((a) => !a.submitted && !a.done).length + assignments.overdue.length
   }
 
   const classifier: ClassifierStatus = getClassifierStatus(scope)
@@ -281,7 +306,8 @@ export function getToday(scope: AccountScope): TodayData {
   return {
     generatedAt: now,
     isDemo: accounts.length > 0 && accounts.every((a) => a.provider === 'demo'),
-    brief: buildBrief(stats, upcoming, urgent),
+    brief: buildBrief(stats, upcoming, urgent, assignments),
+    assignments,
     accounts,
     priorityInbox,
     needsReply,
@@ -320,7 +346,7 @@ export function inboxCoverage(scope: AccountScope): InboxCoverage[] {
                 (SELECT MIN(e.received_at) FROM emails e WHERE e.account_id = a.id AND e.labels LIKE '%"INBOX"%') AS oldest,
                 (SELECT 1 FROM settings s WHERE s.key = 'mail_exhausted:' || a.id) AS exhausted
          FROM accounts a
-         WHERE a.provider != 'demo' AND ($scope IS NULL OR a.id = $scope)`
+         WHERE a.provider IN ('google', 'outlook', 'icloud') AND ($scope IS NULL OR a.id = $scope)`
       )
       .all({ scope }) as Row[]
   ).map((r) => ({

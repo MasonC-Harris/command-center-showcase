@@ -33,7 +33,8 @@ function scopeAccounts(scope: string | null): string[] {
   return (
     getDb()
       .prepare(
-        "SELECT id FROM accounts WHERE provider != 'demo' AND ($scope IS NULL OR id = $scope)"
+        `SELECT id FROM accounts WHERE provider IN ('google', 'outlook', 'icloud')
+           AND ($scope IS NULL OR id = $scope)`
       )
       .all({ scope }) as { id: string }[]
   ).map((r) => r.id)

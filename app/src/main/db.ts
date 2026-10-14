@@ -155,6 +155,29 @@ const MIGRATIONS: string[] = [
     updated_at TEXT NOT NULL,
     sort INTEGER NOT NULL DEFAULT 0
   );
+  `,
+  `
+  CREATE TABLE assignments (
+    id               TEXT PRIMARY KEY,
+    account_id       TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    course_id        TEXT,
+    course_name      TEXT,
+    course_code      TEXT,
+    title            TEXT NOT NULL,
+    kind             TEXT NOT NULL DEFAULT 'assignment',
+    due              TEXT,
+    points_possible  REAL,
+    url              TEXT,
+    submitted        INTEGER NOT NULL DEFAULT 0,
+    graded           INTEGER NOT NULL DEFAULT 0,
+    missing          INTEGER NOT NULL DEFAULT 0,
+    -- Ticked off in Command Center; Canvas is never changed. Survives later syncs.
+    done_at          TEXT,
+    -- Stamp of the sync that last saw this item, used to drop items removed in Canvas.
+    synced_at        TEXT NOT NULL
+  );
+  CREATE INDEX assignments_due ON assignments(due);
+  CREATE INDEX assignments_account ON assignments(account_id);
   `
 ]
 

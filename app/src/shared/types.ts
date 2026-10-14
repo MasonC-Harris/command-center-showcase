@@ -1,7 +1,17 @@
 // Types shared by the main process, preload bridge, and renderer.
 
-/** "google" covers both Gmail and Google Calendar for one Google account. */
-export type Provider = 'google' | 'outlook' | 'icloud' | 'demo'
+/**
+ * "google" covers both Gmail and Google Calendar for one Google account. "canvas" is a school
+ * account (assignments only, no mail or calendar), so it is left out of the mail views.
+ */
+export type Provider = 'google' | 'outlook' | 'icloud' | 'canvas' | 'demo'
+
+/** Providers that bring mail in, and so take part in the Inbox, scope switcher and backfill. */
+export const MAIL_PROVIDERS = ['google', 'outlook', 'icloud', 'demo'] as const
+
+export function isMailProvider(provider: Provider): boolean {
+  return (MAIL_PROVIDERS as readonly string[]).includes(provider)
+}
 
 export type Priority = 'urgent' | 'needs_reply' | 'fyi' | 'newsletter' | 'junk'
 
@@ -65,9 +75,38 @@ export interface EmailBody {
   cc: string[]
 }
 
+/** The AI services the assistant can run on. One is active at a time. */
+export type AssistantProvider = 'anthropic' | 'openai' | 'gemini' | 'groq' | 'openrouter'
+
+export interface AssistantProviderInfo {
+  id: AssistantProvider
+  name: string
+  /** Maker of the service, shown under the name. */
+  maker: string
+  /** True once an API key for it is stored on this PC. */
+  connected: boolean
+  /** The model this provider runs, once chosen. */
+  model: string | null
+  /** Models the key can actually see, newest-looking first. Empty until it is connected. */
+  models: string[]
+  /** Opened in the browser by Connect: sign in there, create a key, paste it back. */
+  consoleUrl: string
+  /** Shape of the key, e.g. "sk-ant-…". */
+  keyHint: string
+  /** One line under the key box: what the service charges for and what it won't do. */
+  note: string
+  /** Set when the last call to this provider failed, so Settings can explain it. */
+  lastError: string | null
+}
+
 export interface AssistantSettings {
+  /** The provider every assistant feature uses right now. */
+  active: AssistantProvider
+  /** True when the active provider has a key; nothing AI works without one. */
   hasKey: boolean
-  model: string
+  /** Active provider and model, for headers and labels, e.g. "Claude · claude-opus-5". */
+  label: string
+  providers: AssistantProviderInfo[]
 }
 
 /** Groq's summary of one email. */
@@ -154,6 +193,76 @@ export interface TaskUpdate {
   remindAt?: string | null
 }
 
+/** What Canvas calls the work: an assignment, a quiz, a graded discussion, a to-do note, ... */
+export type AssignmentKind =
+  'assignment' | 'quiz' | 'discussion' | 'page' | 'note' | 'peer_review' | 'other'
+
+/** How far ahead the assignments tile looks: the rest of today, 7 days, or 30 days. */
+export type AssignmentRange = 'day' | 'week' | 'month'
+
+export interface Assignment {
+  id: string
+  /** The Canvas account the item came from. */
+  accountId: string
+  courseName: string | null
+  /** Short course code, e.g. "CS-162". */
+  courseCode: string | null
+  title: string
+  kind: AssignmentKind
+  /** When it is due. Null for Canvas items with no date. */
+  due: string | null
+  pointsPossible: number | null
+  /** Opens the item in Canvas in the browser. */
+  url: string | null
+  submitted: boolean
+  graded: boolean
+  /** Canvas marked it missing: past due with nothing handed in. */
+  missing: boolean
+  /** Ticked off in Command Center. Canvas is never changed. */
+  done: boolean
+}
+
+export interface AssignmentsData {
+  range: AssignmentRange
+  /** Due inside the range, soonest first. */
+  items: Assignment[]
+  /** Past due, still not handed in or ticked off. Shown whatever the range is. */
+  overdue: Assignment[]
+  /** False while no Canvas account is connected, so the UI can offer to connect one. */
+  connected: boolean
+}
+
+export interface CanvasSettings {
+  connected: boolean
+  /** Canvas host, e.g. "school.instructure.com". */
+  host: string | null
+  /** Name or login Canvas reports for the token's owner. */
+  user: string | null
+  /** The timeframe the Today tile opens on. */
+  range: AssignmentRange
+  lastSync: string | null
+  lastError: string | null
+  /** Items stored locally for this account. */
+  stored: number
+}
+
+/** "summary" is the built-in one-liner; "steps" is a short plan written by Groq. */
+export type BriefStyle = 'summary' | 'steps'
+
+export interface BriefStep {
+  text: string
+  /** Why it is next, e.g. "due 5pm, nothing handed in". */
+  detail: string | null
+}
+
+/** Today's concrete-steps brief. Written once per day and cached until refreshed. */
+export interface BriefPlan {
+  headline: string
+  steps: BriefStep[]
+  model: string
+  generatedAt: string
+}
+
 export type FinanceKind = 'bill' | 'subscription' | 'receipt' | 'income'
 export type FinanceStatus = 'open' | 'paid' | 'ignored'
 
@@ -215,8 +324,10 @@ export interface ApiUsageTotals {
   requests: number
   inputTokens: number
   outputTokens: number
-  /** USD at the provider's published rates. */
+  /** USD at the provider's published rates, for the models the app has rates for. */
   cost: number
+  /** Requests on models with no published rate: counted here, left out of `cost`. */
+  unpricedRequests: number
 }
 
 /** Usage and spend for one connected API (TypeSafe, Groq, ...). */
@@ -276,13 +387,17 @@ export interface TodayStats {
   needsReply: number
   meetingsToday: number
   tasksDue: number
+  /** Canvas items due inside the chosen timeframe, plus anything overdue. */
+  assignmentsDue: number
 }
 
 export interface TodayData {
   generatedAt: string
   /** True while the app is showing seeded placeholder data instead of real accounts. */
   isDemo: boolean
+  /** The built-in one-line summary. The steps brief is fetched separately, only when asked for. */
   brief: string
+  assignments: AssignmentsData
   accounts: Account[]
   priorityInbox: EmailSummary[]
   needsReply: EmailSummary[]
@@ -310,6 +425,23 @@ export interface Keybinding {
 
 /** Only actions the user rebound; everything else uses the default in the renderer's registry. */
 export type KeybindingOverrides = Record<string, Keybinding>
+
+/**
+ * Built-in palettes, plus "custom" for one of the two bases with a colour of the user's choosing.
+ * The values live in renderer/src/styles/tokens.css; these ids select them.
+ */
+export type ThemeId = 'dark' | 'light' | 'midnight' | 'forest' | 'grove' | 'ember' | 'custom'
+
+/** Which base palette a custom theme builds on. */
+export type ThemeBase = 'dark' | 'light'
+
+export interface ThemeSettings {
+  id: ThemeId
+  /** Custom only: the palette the surfaces come from. Kept for every theme so the editor opens on it. */
+  base: ThemeBase
+  /** Custom only: the one accent colour, as #rrggbb. */
+  accent: string
+}
 
 export interface LaunchAtLogin {
   /** False in development builds; only the installed app can register itself. */
@@ -360,6 +492,12 @@ export interface CommandCenterApi {
   connectOutlook(): Promise<Account>
   /** iCloud Mail over IMAP with an app-specific password (mail only, read-only). */
   connectIcloud(address: string, appPassword: string): Promise<Account>
+  /**
+   * Canvas with a user access token from Canvas → Account → Settings. `baseUrl` is the school's
+   * Canvas address, e.g. https://school.instructure.com. Read-only; assignments only.
+   */
+  connectCanvas(baseUrl: string, token: string): Promise<Account>
+  getCanvasSettings(): Promise<CanvasSettings>
   setPrimaryAccount(id: string): Promise<void>
   /** Abandons a sign-in that is waiting on the browser. */
   cancelConnect(): Promise<void>
@@ -370,8 +508,19 @@ export interface CommandCenterApi {
   setTypeSafeKey(apiKey: string | null): Promise<ClassifierSettings>
   setClassifierEnabled(enabled: boolean): Promise<ClassifierSettings>
   getAssistantSettings(): Promise<AssistantSettings>
-  /** Verifies and stores the Groq API key; null removes it. */
-  setGroqKey(apiKey: string | null): Promise<AssistantSettings>
+  /**
+   * Verifies and stores one provider's API key, then lists the models that key can see; null
+   * removes the key. Connecting a provider does not switch to it.
+   */
+  setProviderKey(provider: AssistantProvider, apiKey: string | null): Promise<AssistantSettings>
+  /** Switches every assistant feature to this provider. It has to be connected first. */
+  setAssistantProvider(provider: AssistantProvider): Promise<AssistantSettings>
+  /** Picks which of the provider's models to use. */
+  setProviderModel(provider: AssistantProvider, model: string): Promise<AssistantSettings>
+  /** Opens the provider's sign-in and API-keys page in the default browser. */
+  openProviderConsole(provider: AssistantProvider): Promise<void>
+  /** Re-reads the models the stored key can see (they change as providers ship new ones). */
+  refreshProviderModels(provider: AssistantProvider): Promise<AssistantSettings>
   summarizeEmail(emailId: string): Promise<EmailSummaryAI>
   /** Drafts a reply; `instructions` steers it ("shorter", "decline politely"). Never sends. */
   draftReply(emailId: string, instructions: string): Promise<EmailDraft>
@@ -387,7 +536,30 @@ export interface CommandCenterApi {
     onDelta: (text: string) => void,
     onAction?: (action: ChatTaskAction) => void
   ): Promise<void>
+  /**
+   * Streams an answer to a follow-up question about today's brief. Same transport as `chat`, with
+   * a prompt that keeps the assistant on today's mail, calendar, tasks and assignments.
+   */
+  askBrief(
+    requestId: string,
+    turns: ChatTurn[],
+    onDelta: (text: string) => void,
+    onAction?: (action: ChatTaskAction) => void
+  ): Promise<void>
   cancelChat(requestId: string): Promise<void>
+  getBriefStyle(): Promise<BriefStyle>
+  setBriefStyle(style: BriefStyle): Promise<BriefStyle>
+  /**
+   * Today's concrete-steps brief. Returns the one already written unless `force`, so opening
+   * Today doesn't spend tokens again.
+   */
+  generateBriefPlan(force: boolean): Promise<BriefPlan>
+  /** Canvas items due in the timeframe, plus anything overdue. */
+  listAssignments(range: AssignmentRange): Promise<AssignmentsData>
+  /** Stores the timeframe the assignments tile opens on. */
+  setAssignmentRange(range: AssignmentRange): Promise<AssignmentRange>
+  /** Ticks an assignment off in Command Center only; Canvas is not changed. */
+  setAssignmentDone(id: string, done: boolean): Promise<void>
   /** Removes an event the assistant added (a repeating event's whole series). */
   deleteCalendarEvent(accountId: string, eventId: string): Promise<void>
   listTasks(): Promise<Task[]>
@@ -418,6 +590,9 @@ export interface CommandCenterApi {
   /** Whether closing the window hides it to the tray instead of quitting. Default on. */
   getKeepInTray(): Promise<boolean>
   setKeepInTray(enabled: boolean): Promise<boolean>
+  getTheme(): Promise<ThemeSettings>
+  /** Stores the theme; returns what was kept after validation. */
+  setTheme(theme: ThemeSettings): Promise<ThemeSettings>
   getKeybindings(): Promise<KeybindingOverrides>
   /** Replaces all overrides; returns what was stored after validation. */
   setKeybindings(overrides: KeybindingOverrides): Promise<KeybindingOverrides>
@@ -445,6 +620,11 @@ export const IPC = {
   connectGoogle: 'accounts:connect-google',
   connectOutlook: 'accounts:connect-outlook',
   connectIcloud: 'accounts:connect-icloud',
+  connectCanvas: 'accounts:connect-canvas',
+  getCanvasSettings: 'canvas:settings',
+  listAssignments: 'assignments:list',
+  setAssignmentRange: 'assignments:set-range',
+  setAssignmentDone: 'assignments:set-done',
   setPrimaryAccount: 'accounts:set-primary',
   cancelConnect: 'accounts:cancel-connect',
   disconnectAccount: 'accounts:disconnect',
@@ -453,7 +633,13 @@ export const IPC = {
   setTypeSafeKey: 'classifier:set-key',
   setClassifierEnabled: 'classifier:set-enabled',
   getAssistantSettings: 'assistant:settings',
-  setGroqKey: 'assistant:set-key',
+  setProviderKey: 'assistant:set-key',
+  setAssistantProvider: 'assistant:set-provider',
+  setProviderModel: 'assistant:set-model',
+  openProviderConsole: 'assistant:open-console',
+  refreshProviderModels: 'assistant:refresh-models',
+  getTheme: 'theme:get',
+  setTheme: 'theme:set',
   summarizeEmail: 'assistant:summarize',
   draftReply: 'assistant:draft-reply',
   suggestTask: 'assistant:suggest-task',
@@ -461,6 +647,10 @@ export const IPC = {
   chatDelta: 'assistant:chat-delta',
   chatAction: 'assistant:chat-action',
   cancelChat: 'assistant:chat-cancel',
+  askBrief: 'brief:ask',
+  getBriefStyle: 'brief:get-style',
+  setBriefStyle: 'brief:set-style',
+  generateBriefPlan: 'brief:generate',
   deleteCalendarEvent: 'events:delete',
   listTasks: 'tasks:list',
   createTask: 'tasks:create',

@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import type {
+  AssistantProvider,
   AssistantSettings,
   EmailDraft,
   EmailSummaryAI,
@@ -12,37 +13,113 @@ import { notifyChanged } from '../events'
 import { getEmailBody } from '../mailBody'
 import { getEmail } from '../queries'
 import { deleteSecret, readSecret, saveSecret } from '../secrets'
-import { chatJson, GROQ_MODEL, verifyGroqKey, type ChatMessage } from './groq'
+import { activeLabel, assistantReady, completeJson, verifyKey, type LlmMessage } from './llm'
+import {
+  activeProvider,
+  defaultModel,
+  forgetProvider,
+  hasKey,
+  providerError,
+  providerModel,
+  PROVIDER_IDS,
+  PROVIDERS,
+  recordProviderError,
+  setActiveProvider,
+  setProviderModel as setProviderModelId,
+  storeModels,
+  usableModels
+} from './providers'
 
 // The assistant only ever sees an email when the user presses Summarize, Draft reply or Make task
 // on it. Every call is written to the audit log. Results are kept in memory, not in SQLite.
 
-const API_KEY_SECRET = 'groq-api-key'
 /** Long newsletters are cut; the start of an email carries what matters for these tasks. */
 const MAX_BODY_CHARS = 12_000
 
 export function getAssistantSettings(): AssistantSettings {
-  return { hasKey: readSecret(API_KEY_SECRET) !== null, model: GROQ_MODEL }
+  return {
+    active: activeProvider(),
+    hasKey: assistantReady(),
+    label: activeLabel(),
+    providers: PROVIDER_IDS.map((id) => {
+      const spec = PROVIDERS[id]
+      return {
+        id,
+        name: spec.name,
+        maker: spec.maker,
+        connected: hasKey(id),
+        model: providerModel(id),
+        models: usableModels(id),
+        consoleUrl: spec.consoleUrl,
+        keyHint: spec.keyHint,
+        note: spec.note,
+        lastError: providerError(id)
+      }
+    })
+  }
 }
 
-export async function setGroqKey(apiKey: string | null): Promise<AssistantSettings> {
+/**
+ * Verifies a key against its provider, stores it encrypted, and keeps the model list that key
+ * can see. The first provider connected also becomes the active one, so a fresh install works
+ * after a single paste.
+ */
+export async function setProviderKey(
+  id: AssistantProvider,
+  apiKey: string | null
+): Promise<AssistantSettings> {
+  const spec = PROVIDERS[id]
   if (apiKey === null) {
-    deleteSecret(API_KEY_SECRET)
-    audit('user', 'assistant.key-removed')
+    deleteSecret(spec.secret)
+    forgetProvider(id)
+    recordProviderError(id, null)
+    audit('user', 'assistant.key-removed', id)
   } else {
     const key = apiKey.trim()
-    await verifyGroqKey(key)
-    saveSecret(API_KEY_SECRET, key)
-    audit('user', 'assistant.key-saved')
+    const models = await verifyKey(id, key)
+    saveSecret(spec.secret, key)
+    storeModels(id, models)
+    if (!providerModel(id)) {
+      const model = defaultModel(id, models)
+      if (model) setProviderModelId(id, model)
+    }
+    recordProviderError(id, null)
+    audit('user', 'assistant.key-saved', id)
+    // A first connection is almost certainly the one the user wants to use.
+    if (!PROVIDER_IDS.some((other) => other !== id && hasKey(other))) setActiveProvider(id)
   }
   notifyChanged()
   return getAssistantSettings()
 }
 
-function requireKey(): string {
-  const key = readSecret(API_KEY_SECRET)
-  if (!key) throw new Error('Add a Groq API key in Settings to use the assistant.')
-  return key
+export function setAssistantProvider(id: AssistantProvider): AssistantSettings {
+  if (!hasKey(id)) throw new Error(`Connect ${PROVIDERS[id].name} first.`)
+  setActiveProvider(id)
+  audit('user', 'assistant.provider', id)
+  notifyChanged()
+  return getAssistantSettings()
+}
+
+export function setAssistantModel(id: AssistantProvider, model: string): AssistantSettings {
+  const clean = model.trim()
+  if (!clean) throw new Error('Choose a model.')
+  setProviderModelId(id, clean)
+  audit('user', 'assistant.model', `${id} ${clean}`)
+  notifyChanged()
+  return getAssistantSettings()
+}
+
+/** Re-asks the provider which models the stored key can see; they change over time. */
+export async function refreshProviderModels(id: AssistantProvider): Promise<AssistantSettings> {
+  const key = readSecret(PROVIDERS[id].secret)
+  if (!key) throw new Error(`Connect ${PROVIDERS[id].name} first.`)
+  storeModels(id, await verifyKey(id, key))
+  notifyChanged()
+  return getAssistantSettings()
+}
+
+export function providerConsoleUrl(id: AssistantProvider): string {
+  return PROVIDERS[id].consoleUrl
 }
 
 /** Plain text from an HTML email, good enough for a language model. */
@@ -87,7 +164,7 @@ const summaryCache = new Map<string, EmailSummaryAI>()
 export async function summarizeEmail(emailId: string): Promise<EmailSummaryAI> {
   const cached = summaryCache.get(emailId)
   if (cached) return cached
-  const messages: ChatMessage[] = [
+  const messages: LlmMessage[] = [
     {
       role: 'system',
       content:
@@ -98,8 +175,7 @@ export async function summarizeEmail(emailId: string): Promise<EmailSummaryAI> {
       content: `Summarize this email.\n\n${await emailContext(emailId)}`
     }
   ]
-  const { data, model } = await chatJson<Omit<EmailSummaryAI, 'model'>>(
-    requireKey(),
+  const { data, model } = await completeJson<Omit<EmailSummaryAI, 'model'>>(
     messages,
     'email_summary',
     {
@@ -118,7 +194,7 @@ export async function summarizeEmail(emailId: string): Promise<EmailSummaryAI> {
       additionalProperties: false
     }
   )
-  audit('groq', 'email.summarize', emailId)
+  audit(activeProvider(), 'email.summarize', emailId)
   const result = { ...data, model }
   summaryCache.set(emailId, result)
   return result
@@ -126,7 +202,7 @@ export async function summarizeEmail(emailId: string): Promise<EmailSummaryAI> {
 
 export async function draftReply(emailId: string, instructions: string): Promise<EmailDraft> {
   const email = getEmail(emailId)
-  const messages: ChatMessage[] = [
+  const messages: LlmMessage[] = [
     {
       role: 'system',
       content:
@@ -139,8 +215,7 @@ export async function draftReply(emailId: string, instructions: string): Promise
       }\n\n${await emailContext(emailId)}`
     }
   ]
-  const { data, model } = await chatJson<{ body: string }>(
-    requireKey(),
+  const { data, model } = await completeJson<{ body: string }>(
     messages,
     'email_reply',
     {
@@ -153,13 +228,13 @@ export async function draftReply(emailId: string, instructions: string): Promise
     },
     2000
   )
-  audit('groq', 'email.draft-reply', emailId)
+  audit(activeProvider(), 'email.draft-reply', emailId)
   return { body: data.body, model }
 }
 
 export async function suggestTask(emailId: string): Promise<TaskSuggestion> {
   const now = new Date()
-  const messages: ChatMessage[] = [
+  const messages: LlmMessage[] = [
     {
       role: 'system',
       content:
@@ -170,12 +245,11 @@ export async function suggestTask(emailId: string): Promise<TaskSuggestion> {
       content: `Today is ${now.toDateString()} (${Intl.DateTimeFormat().resolvedOptions().timeZone}).\n\n${await emailContext(emailId)}`
     }
   ]
-  const { data } = await chatJson<{
+  const { data } = await completeJson<{
     title: string
     dueDate: string | null
     dueTime: string | null
   }>(
-    requireKey(),
     messages,
     'task',
     {
@@ -190,7 +264,7 @@ export async function suggestTask(emailId: string): Promise<TaskSuggestion> {
     },
     600
   )
-  audit('groq', 'email.suggest-task', emailId)
+  audit(activeProvider(), 'email.suggest-task', emailId)
   return { title: data.title, due: toIso(data.dueDate, data.dueTime) }
 }
 

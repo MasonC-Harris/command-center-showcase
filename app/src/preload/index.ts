@@ -1,6 +1,33 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC, type ChatTaskAction, type CommandCenterApi } from '../shared/types'
 
+/**
+ * One streaming assistant call. Reply text and the cards for tasks or events it created arrive on
+ * shared channels tagged with `requestId`, so several streams can run at once.
+ */
+async function stream(
+  channel: string,
+  requestId: string,
+  args: unknown[],
+  onDelta: (text: string) => void,
+  onAction?: (action: ChatTaskAction) => void
+): Promise<void> {
+  const listener = (_: unknown, id: string, text: string): void => {
+    if (id === requestId) onDelta(text)
+  }
+  const actionListener = (_: unknown, id: string, action: ChatTaskAction): void => {
+    if (id === requestId) onAction?.(action)
+  }
+  ipcRenderer.on(IPC.chatDelta, listener)
+  ipcRenderer.on(IPC.chatAction, actionListener)
+  try {
+    await ipcRenderer.invoke(channel, requestId, ...args)
+  } finally {
+    ipcRenderer.removeListener(IPC.chatDelta, listener)
+    ipcRenderer.removeListener(IPC.chatAction, actionListener)
+  }
+}
+
 // Typed bridge to the main process. The renderer only talks to main through this object.
 const api: CommandCenterApi = {
   getToday: (scope) => ipcRenderer.invoke(IPC.getToday, scope),
@@ -25,6 +52,11 @@ const api: CommandCenterApi = {
   connectOutlook: () => ipcRenderer.invoke(IPC.connectOutlook),
   connectIcloud: (address, appPassword) =>
     ipcRenderer.invoke(IPC.connectIcloud, address, appPassword),
+  connectCanvas: (baseUrl, token) => ipcRenderer.invoke(IPC.connectCanvas, baseUrl, token),
+  getCanvasSettings: () => ipcRenderer.invoke(IPC.getCanvasSettings),
+  listAssignments: (range) => ipcRenderer.invoke(IPC.listAssignments, range),
+  setAssignmentRange: (range) => ipcRenderer.invoke(IPC.setAssignmentRange, range),
+  setAssignmentDone: (id, done) => ipcRenderer.invoke(IPC.setAssignmentDone, id, done),
   setPrimaryAccount: (id) => ipcRenderer.invoke(IPC.setPrimaryAccount, id),
   cancelConnect: () => ipcRenderer.invoke(IPC.cancelConnect),
   disconnectAccount: (id) => ipcRenderer.invoke(IPC.disconnectAccount, id),
@@ -33,27 +65,22 @@ const api: CommandCenterApi = {
   setTypeSafeKey: (apiKey) => ipcRenderer.invoke(IPC.setTypeSafeKey, apiKey),
   setClassifierEnabled: (enabled) => ipcRenderer.invoke(IPC.setClassifierEnabled, enabled),
   getAssistantSettings: () => ipcRenderer.invoke(IPC.getAssistantSettings),
-  setGroqKey: (apiKey) => ipcRenderer.invoke(IPC.setGroqKey, apiKey),
+  setProviderKey: (provider, apiKey) => ipcRenderer.invoke(IPC.setProviderKey, provider, apiKey),
+  setAssistantProvider: (provider) => ipcRenderer.invoke(IPC.setAssistantProvider, provider),
+  setProviderModel: (provider, model) => ipcRenderer.invoke(IPC.setProviderModel, provider, model),
+  openProviderConsole: (provider) => ipcRenderer.invoke(IPC.openProviderConsole, provider),
+  refreshProviderModels: (provider) => ipcRenderer.invoke(IPC.refreshProviderModels, provider),
   summarizeEmail: (emailId) => ipcRenderer.invoke(IPC.summarizeEmail, emailId),
   draftReply: (emailId, instructions) => ipcRenderer.invoke(IPC.draftReply, emailId, instructions),
   suggestTask: (emailId) => ipcRenderer.invoke(IPC.suggestTask, emailId),
-  chat: async (requestId, turns, includeDay, onDelta, onAction) => {
-    const listener = (_: unknown, id: string, text: string): void => {
-      if (id === requestId) onDelta(text)
-    }
-    const actionListener = (_: unknown, id: string, action: ChatTaskAction): void => {
-      if (id === requestId) onAction?.(action)
-    }
-    ipcRenderer.on(IPC.chatDelta, listener)
-    ipcRenderer.on(IPC.chatAction, actionListener)
-    try {
-      await ipcRenderer.invoke(IPC.chat, requestId, turns, includeDay)
-    } finally {
-      ipcRenderer.removeListener(IPC.chatDelta, listener)
-      ipcRenderer.removeListener(IPC.chatAction, actionListener)
-    }
-  },
+  chat: (requestId, turns, includeDay, onDelta, onAction) =>
+    stream(IPC.chat, requestId, [turns, includeDay], onDelta, onAction),
+  askBrief: (requestId, turns, onDelta, onAction) =>
+    stream(IPC.askBrief, requestId, [turns], onDelta, onAction),
   cancelChat: (requestId) => ipcRenderer.invoke(IPC.cancelChat, requestId),
+  getBriefStyle: () => ipcRenderer.invoke(IPC.getBriefStyle),
+  setBriefStyle: (style) => ipcRenderer.invoke(IPC.setBriefStyle, style),
+  generateBriefPlan: (force) => ipcRenderer.invoke(IPC.generateBriefPlan, force),
   deleteCalendarEvent: (accountId, eventId) =>
     ipcRenderer.invoke(IPC.deleteCalendarEvent, accountId, eventId),
   listTasks: () => ipcRenderer.invoke(IPC.listTasks),
@@ -83,6 +110,8 @@ const api: CommandCenterApi = {
   setLaunchAtLogin: (enabled) => ipcRenderer.invoke(IPC.setLaunchAtLogin, enabled),
   getKeepInTray: () => ipcRenderer.invoke(IPC.getKeepInTray),
   setKeepInTray: (enabled) => ipcRenderer.invoke(IPC.setKeepInTray, enabled),
+  getTheme: () => ipcRenderer.invoke(IPC.getTheme),
+  setTheme: (theme) => ipcRenderer.invoke(IPC.setTheme, theme),
   getKeybindings: () => ipcRenderer.invoke(IPC.getKeybindings),
   setKeybindings: (overrides) => ipcRenderer.invoke(IPC.setKeybindings, overrides),
   onDataChanged: (callback) => {

@@ -5,6 +5,9 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import {
   IPC,
+  type AssignmentRange,
+  type AssistantProvider,
+  type ThemeSettings,
   type ChatTurn,
   type EmailCursor,
   type EmailOverride,
@@ -33,13 +36,26 @@ import { deleteBalance, listBalances, saveBalance } from './balances'
 import type { AccountBalanceInput } from '../shared/types'
 import { backfillUsage, getApiUsage, setApiBalance } from './apiUsage'
 import { cancelChat, chat } from './assistant/chat'
+import { isProvider } from './assistant/providers'
+import { getTheme, setTheme, windowBackground } from './theme'
+import { generateBriefPlan, getBriefStyle, setBriefStyle } from './brief'
+import {
+  getCanvasSettings,
+  listAssignments,
+  setAssignmentDone,
+  setAssignmentRange
+} from './canvas/assignments'
 import {
   createTask,
   deleteTask,
   draftReply,
   getAssistantSettings,
   listTasks,
-  setGroqKey,
+  providerConsoleUrl,
+  refreshProviderModels,
+  setAssistantModel,
+  setAssistantProvider,
+  setProviderKey,
   updateTask,
   suggestTask,
   summarizeEmail
@@ -58,6 +74,7 @@ import {
   connectGoogle,
   connectOutlook,
   connectIcloud,
+  connectCanvas,
   disconnectAccount,
   setPrimaryAccount,
   getSyncStatus,
@@ -89,10 +106,7 @@ import {
 import { getKeybindings, setKeybindings } from './keybindings'
 
 // Same data folder for dev runs and the installed app, so both share the database and sign-in.
-app.setPath(
-  'userData',
-  process.env.CC_USER_DATA ?? join(app.getPath('appData'), 'command-center')
-)
+app.setPath('userData', process.env.CC_USER_DATA ?? join(app.getPath('appData'), 'command-center'))
 
 // One instance only: opening the shortcut again focuses the running window.
 if (!app.requestSingleInstanceLock()) {
@@ -108,6 +122,13 @@ app.on('second-instance', () => {
 
 // Fires for the tray's Quit, app.quit() from the installer or updater, and Windows shutdown.
 app.on('before-quit', markQuitting)
+
+/** Keeps only well-formed turns out of whatever the renderer sent. */
+function chatTurns(turns: unknown): ChatTurn[] {
+  return (Array.isArray(turns) ? (turns as ChatTurn[]) : [])
+    .filter((t) => (t?.role === 'user' || t?.role === 'assistant') && typeof t.content === 'string')
+    .map((t) => ({ role: t.role, content: t.content }))
+}
 
 /** The app's own page: the bundled index.html, or the dev server during development. */
 function isAppUrl(url: string): boolean {
@@ -132,7 +153,7 @@ function createWindow(): void {
     minHeight: 640,
     show: false,
     title: 'Command Center',
-    backgroundColor: '#0b0b0d',
+    backgroundColor: windowBackground(),
     autoHideMenuBar: true,
     icon,
     webPreferences: {
@@ -222,6 +243,12 @@ function registerIpc(): void {
       })
   }
   const scopeArg = (scope: unknown): string | null => (typeof scope === 'string' ? scope : null)
+  const providerArg = (p: unknown): AssistantProvider => {
+    if (!isProvider(p)) throw new Error('Unknown AI provider.')
+    return p
+  }
+  const rangeArg = (r: unknown): AssignmentRange =>
+    r === 'day' || r === 'week' || r === 'month' ? r : 'week'
   const cursorArg = (c: unknown): EmailCursor | null =>
     c && typeof c === 'object' && 'receivedAt' in c && 'id' in c
       ? { receivedAt: String(c.receivedAt), id: String(c.id) }
@@ -270,6 +297,15 @@ function registerIpc(): void {
   ipc.handle(IPC.connectIcloud, (_, address: string, appPassword: string) =>
     connectIcloud(String(address ?? ''), String(appPassword ?? ''))
   )
+  ipc.handle(IPC.connectCanvas, (_, baseUrl: string, token: string) =>
+    connectCanvas(String(baseUrl ?? ''), String(token ?? ''))
+  )
+  ipc.handle(IPC.getCanvasSettings, () => getCanvasSettings())
+  ipc.handle(IPC.listAssignments, (_, range: unknown) => listAssignments(rangeArg(range)))
+  ipc.handle(IPC.setAssignmentRange, (_, range: unknown) => setAssignmentRange(rangeArg(range)))
+  ipc.handle(IPC.setAssignmentDone, (_, id: string, done: unknown) =>
+    setAssignmentDone(String(id), Boolean(done))
+  )
   ipc.handle(IPC.setPrimaryAccount, (_, id: string) => setPrimaryAccount(String(id)))
   ipc.handle(IPC.cancelConnect, () => cancelSignIn())
   ipc.handle(IPC.disconnectAccount, (_, id: string) => disconnectAccount(id))
@@ -282,8 +318,27 @@ function registerIpc(): void {
     setClassifierEnabled(Boolean(enabled))
   )
   ipc.handle(IPC.getAssistantSettings, () => getAssistantSettings())
-  ipc.handle(IPC.setGroqKey, (_, apiKey: unknown) =>
-    setGroqKey(typeof apiKey === 'string' && apiKey.trim() ? apiKey : null)
+  ipc.handle(IPC.setProviderKey, (_, provider: unknown, apiKey: unknown) =>
+    setProviderKey(
+      providerArg(provider),
+      typeof apiKey === 'string' && apiKey.trim() ? apiKey : null
+    )
+  )
+  ipc.handle(IPC.setAssistantProvider, (_, provider: unknown) =>
+    setAssistantProvider(providerArg(provider))
+  )
+  ipc.handle(IPC.setProviderModel, (_, provider: unknown, model: unknown) =>
+    setAssistantModel(providerArg(provider), String(model ?? ''))
+  )
+  ipc.handle(IPC.refreshProviderModels, (_, provider: unknown) =>
+    refreshProviderModels(providerArg(provider))
+  )
+  ipc.handle(IPC.openProviderConsole, (_, provider: unknown) =>
+    shell.openExternal(providerConsoleUrl(providerArg(provider)))
+  )
+  ipc.handle(IPC.getTheme, () => getTheme())
+  ipc.handle(IPC.setTheme, (_, theme: unknown) =>
+    setTheme(theme && typeof theme === 'object' ? (theme as Partial<ThemeSettings>) : {})
   )
   ipc.handle(IPC.summarizeEmail, (_, emailId: string) => summarizeEmail(String(emailId)))
   ipc.handle(IPC.draftReply, (_, emailId: string, instructions: unknown) =>
@@ -291,18 +346,18 @@ function registerIpc(): void {
   )
   ipc.handle(IPC.suggestTask, (_, emailId: string) => suggestTask(String(emailId)))
   ipc.handle(IPC.chat, (e, requestId: string, turns: ChatTurn[], includeDay: unknown) =>
-    chat(
-      e.sender,
-      String(requestId),
-      (Array.isArray(turns) ? turns : [])
-        .filter(
-          (t) => (t?.role === 'user' || t?.role === 'assistant') && typeof t.content === 'string'
-        )
-        .map((t) => ({ role: t.role, content: t.content })),
-      Boolean(includeDay)
-    )
+    chat(e.sender, String(requestId), chatTurns(turns), Boolean(includeDay))
   )
   ipc.handle(IPC.cancelChat, (_, requestId: string) => cancelChat(String(requestId)))
+  // Brief follow-ups always see the day: that is the whole point of asking from the brief.
+  ipc.handle(IPC.askBrief, (e, requestId: string, turns: ChatTurn[]) =>
+    chat(e.sender, String(requestId), chatTurns(turns), true, 'brief')
+  )
+  ipc.handle(IPC.getBriefStyle, () => getBriefStyle())
+  ipc.handle(IPC.setBriefStyle, (_, style: unknown) =>
+    setBriefStyle(style === 'steps' ? 'steps' : 'summary')
+  )
+  ipc.handle(IPC.generateBriefPlan, (_, force: unknown) => generateBriefPlan(Boolean(force)))
   ipc.handle(IPC.deleteCalendarEvent, async (_, accountId: string, eventId: string) => {
     const id = String(accountId)
     if (!id.startsWith('outlook:')) throw new Error('Only Outlook events can be removed here.')
