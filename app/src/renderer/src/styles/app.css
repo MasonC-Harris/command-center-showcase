@@ -2603,6 +2603,93 @@ button.link {
   line-height: 1.5;
 }
 
+/* ---------- Logs ---------- */
+
+.log-filters {
+  margin-left: auto;
+}
+
+.log-count {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.log-entry {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 34px;
+}
+
+.log-row {
+  display: grid;
+  /* Fixed widths, so messages line up whatever the timestamp or source. */
+  grid-template-columns: 120px 64px 170px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  text-align: left;
+}
+
+.log-time {
+  color: var(--text-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.log-level {
+  justify-content: center;
+}
+
+.log-entry[data-level='error'] .log-level {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.log-entry[data-level='info'] .log-level {
+  border-color: transparent;
+  color: var(--text-faint);
+}
+
+.log-source {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-message {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.log-entry[data-level='info'] .log-message {
+  color: var(--text-muted);
+}
+
+.log-detail {
+  max-height: 320px;
+  margin: 2px 8px 8px;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.boundary-actions {
+  justify-content: center;
+  margin-top: 12px;
+}
+
 /* Visible to screen readers only; used for labels the layout already makes obvious. */
 .visually-hidden {
   position: absolute;

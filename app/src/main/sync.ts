@@ -19,6 +19,7 @@ import * as microsoft from './microsoft/auth'
 import { syncOutlookCalendar } from './microsoft/calendar'
 import { backfillOutlook, syncOutlookMail } from './microsoft/mail'
 import { applyClearedCutoff, clearedBefore } from './mailActions'
+import { logInfo } from './logs'
 import * as icloud from './icloud/mail'
 import { ReauthRequiredError } from './oauth'
 import {
@@ -121,6 +122,7 @@ async function addAccount(
     setPrimaryAccountId(accountId)
   }
   audit('user', 'account.connect', accountId)
+  logInfo('accounts', `Connected ${email} (${provider}).`)
   notifyChanged()
 
   await syncAll()
@@ -135,7 +137,14 @@ async function addAccount(
   return listAccounts().find((a) => a.id === accountId)!
 }
 
-export const connectGoogle = (): Promise<Account> => addAccount('google', google.signIn)
+/** Adds a Google account, or reconnects the one given (see google.signIn). */
+export async function connectGoogle(reconnectId?: string): Promise<Account> {
+  if (!reconnectId) return addAccount('google', () => google.signIn())
+  const account = listAccounts().find((a) => a.id === reconnectId && a.provider === 'google')
+  if (!account) throw new Error('Unknown account.')
+  return addAccount('google', () => google.signIn(account.address))
+}
+
 export const connectOutlook = (): Promise<Account> => addAccount('outlook', microsoft.signIn)
 export const connectIcloud = (address: string, appPassword: string): Promise<Account> =>
   addAccount('icloud', () => icloud.signIn(address, appPassword))
@@ -170,6 +179,7 @@ export async function disconnectAccount(id: string): Promise<void> {
     )
   }
   audit('user', 'account.disconnect', id)
+  logInfo('accounts', `Disconnected ${id}.`)
   notifyChanged()
 }
 

@@ -449,6 +449,33 @@ export interface LaunchAtLogin {
   enabled: boolean
 }
 
+/**
+ * "error" is something that failed: a sync, a button's action, a crash. "warn" is from a
+ * console.warn in the main process. "info" marks what happened around them (app start, accounts
+ * added or removed, a sign-in the user cancelled).
+ */
+export type LogLevel = 'error' | 'warn' | 'info'
+
+/** One line of the debug log shown in the Logs view. */
+export interface LogEntry {
+  /** Grows with every entry; starts again only after the log is cleared. */
+  id: number
+  ts: string
+  level: LogLevel
+  /** Where it came from: "main", "window", "app", or the IPC channel of the call that failed. */
+  source: string
+  message: string
+  /** Stack trace or other detail, shown when the entry is expanded. */
+  detail: string | null
+}
+
+export interface LogSnapshot {
+  /** Oldest first; earlier sessions included. */
+  entries: LogEntry[]
+  /** App, Electron and Windows versions, put at the top of a copied log. */
+  about: string
+}
+
 export interface CommandCenterApi {
   getToday(scope: AccountScope): Promise<TodayData>
   setTaskStatus(id: string, status: TaskStatus): Promise<void>
@@ -487,8 +514,12 @@ export interface CommandCenterApi {
   getEventsRange(start: string, end: string, scope: AccountScope): Promise<CalendarEvent[]>
   listAccounts(): Promise<Account[]>
   getSyncStatus(): Promise<SyncStatus>
-  /** Opens the Google sign-in page in the default browser and resolves once the account is connected. */
-  connectGoogle(): Promise<Account>
+  /**
+   * Opens the Google sign-in page in the default browser and resolves once the account is
+   * connected. Each Google account is its own row, so this adds another one; pass an account id to
+   * reconnect that account instead.
+   */
+  connectGoogle(reconnectId?: string): Promise<Account>
   connectOutlook(): Promise<Account>
   /** iCloud Mail over IMAP with an app-specific password (mail only, read-only). */
   connectIcloud(address: string, appPassword: string): Promise<Account>
@@ -598,6 +629,15 @@ export interface CommandCenterApi {
   setKeybindings(overrides: KeybindingOverrides): Promise<KeybindingOverrides>
   /** Fires whenever synced data or sync status changes. Returns an unsubscribe function. */
   onDataChanged(callback: () => void): () => void
+  getLogs(): Promise<LogSnapshot>
+  /** Empties the log, on disk too. */
+  clearLogs(): Promise<void>
+  /** Opens the folder with the log file in Explorer, e.g. to attach it to a bug report. */
+  openLogFolder(): Promise<void>
+  /** Records an error the window caught (an uncaught exception, a view that failed to render). */
+  reportError(message: string, detail: string | null): Promise<void>
+  /** Fires for every new log entry. Returns an unsubscribe function. */
+  onLog(callback: (entry: LogEntry) => void): () => void
 }
 
 export const IPC = {
@@ -676,5 +716,10 @@ export const IPC = {
   setKeepInTray: 'system:set-keep-in-tray',
   getKeybindings: 'settings:get-keybindings',
   setKeybindings: 'settings:set-keybindings',
-  dataChanged: 'data:changed'
+  dataChanged: 'data:changed',
+  getLogs: 'logs:list',
+  clearLogs: 'logs:clear',
+  openLogFolder: 'logs:open-folder',
+  reportError: 'logs:report',
+  logAdded: 'logs:added'
 } as const

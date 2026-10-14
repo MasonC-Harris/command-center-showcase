@@ -15,6 +15,7 @@ A local-first desktop app that puts mail, calendar, school and money-from-email 
 - **Tasks and reminders**, plus a **Finance** view: bills, subscriptions and receipts pulled out of mail (the scan must quote evidence that money actually moved, so offers and gift-card promos are rejected), one-click adding from bill-like emails, hand-entered account balances, and **API usage** tracking with spend and remaining credit for the AI services.
 - **Command palette** (`Ctrl+K`) to search mail and events and run any action. All shortcuts are rebindable.
 - **Themes**: six palettes (dark, light, midnight blue, deep forest, light forest, ember) plus a custom one where you pick the base and the accent. Applies instantly and is remembered, including the window's own background colour.
+- **Logs** view (`Ctrl+7`) for debugging: failed syncs and sign-ins, buttons whose action failed, uncaught errors and crashes in either process, each with its stack trace. A top-bar alert counts errors you haven't looked at yet, the log survives restarts, and it can be filtered, copied, or opened as a file. It stays on your PC.
 - Tray icon, daily database backups, and read-only mail access by default.
 
 | Inbox | Calendar |
@@ -65,7 +66,7 @@ npm run dev
 
 To connect real accounts you need your own OAuth clients, because this project is not verified by Google or Microsoft:
 
-- **Google:** create a Desktop OAuth client with the Gmail and Calendar APIs enabled and save it as `client_secret_google.json` in the project root (it is gitignored).
+- **Google:** create a Desktop OAuth client with the Gmail and Calendar APIs enabled and save it as `client_secret_google.json` in the project root (it is gitignored). Press **Add Google account** in Settings once per Gmail address; each one syncs on its own and shows up in the sidebar's account switcher. While the OAuth app is in testing mode, add every address you want to connect under **OAuth consent screen → Test users**, or Google blocks the sign-in.
 - **Microsoft:** register an Azure app for Microsoft Graph and set `MS_CLIENT_ID` to its client ID.
 - **Classifier:** paste a TypeSafe key in Settings.
 - **Assistant:** in Settings → Assistant, press Connect on Claude, ChatGPT, Gemini, Groq or OpenRouter. That opens the provider's API-keys page in your browser; sign in, create a key, and paste it back. Keys are checked before they are stored, and the model list comes from the provider, so it stays current as models ship. Note that a Claude Pro, ChatGPT Plus or Gemini Advanced subscription does **not** cover API use — none of these providers exposes an OAuth flow a third-party desktop app can use, so programmatic calls are billed per token on a separate API account.

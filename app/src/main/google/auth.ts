@@ -72,8 +72,12 @@ async function postToken(params: Record<string, string>): Promise<TokenResponse>
 /**
  * Runs the browser sign-in flow and stores the refresh token.
  * Resolves with the signed-in email address.
+ *
+ * With several Google accounts connected, a reconnect passes the address it is for: Google is
+ * asked for that account, and signing in as a different one is refused instead of quietly adding
+ * it while the expired account stays broken.
  */
-export async function signIn(): Promise<{ email: string; accountId: string }> {
+export async function signIn(reconnecting?: string): Promise<{ email: string; accountId: string }> {
   const client = loadGoogleClient()
   if (!client)
     throw new Error(`Google client file not found. Put ${CLIENT_FILE} in the project root.`)
@@ -90,7 +94,8 @@ export async function signIn(): Promise<{ email: string; accountId: string }> {
       state: req.state,
       access_type: 'offline',
       // Always show the account chooser so a second Google account can be picked.
-      prompt: 'select_account consent'
+      prompt: 'select_account consent',
+      ...(reconnecting ? { login_hint: reconnecting } : {})
     }).toString()
     return auth.toString()
   })
@@ -116,6 +121,13 @@ export async function signIn(): Promise<{ email: string; accountId: string }> {
 
   const email = String(idTokenClaims(tokens.id_token).email).toLowerCase()
   const accountId = `google:${email}`
+  // Not revoked: that would end the grant for this account everywhere, including its own row if
+  // it is already connected here.
+  if (reconnecting && email !== reconnecting.toLowerCase()) {
+    throw new Error(
+      `You signed in as ${email}. To reconnect ${reconnecting}, choose that account on Google's screen.`
+    )
+  }
 
   saveSecret(refreshKey(accountId), tokens.refresh_token)
   accessTokens.set(accountId, tokens.access_token, tokens.expires_in)

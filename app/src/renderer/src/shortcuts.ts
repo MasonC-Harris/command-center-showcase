@@ -56,6 +56,12 @@ export const SHORTCUTS: ShortcutDef[] = [
     default: { key: '6', ctrl: true }
   },
   {
+    id: 'view.logs',
+    label: 'Go to Logs',
+    group: 'Navigation',
+    default: { key: '7', ctrl: true }
+  },
+  {
     id: 'scope.all',
     label: 'Show all accounts',
     group: 'Accounts',
