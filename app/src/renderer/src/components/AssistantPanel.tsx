@@ -68,7 +68,7 @@ export function AssistantPanel({ email }: { email: EmailSummary }): React.JSX.El
   const mailApp = email.webUrl?.includes('google.com') ? 'Gmail' : 'Outlook'
 
   return (
-    <section className="assistant">
+    <section className="assistant-panel">
       <div className="assistant-bar">
         <button className="btn" disabled={!hasKey || busy} onClick={() => void summarize()}>
           Summarize

@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChatTurn } from '@shared/types'
+import { clamp, dragFrom, readStored, writeStored } from '../resize'
 import { ChatActionCard } from './ChatActionCard'
 import { Markdown } from './Markdown'
+
+const WIDTH_KEY = 'cc.chatWidth'
+const DEFAULT_WIDTH = 440
 
 /**
  * Slide-out chat with the chosen AI provider. History is held by the parent so it survives
@@ -22,6 +26,8 @@ export function ChatPanel({
   const [requestId, setRequestId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [assistant, setAssistant] = useState<{ hasKey: boolean; label: string } | null>(null)
+  const [width, setWidth] = useState(() => readStored(WIDTH_KEY, DEFAULT_WIDTH))
+  const panel = useRef<HTMLElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLTextAreaElement>(null)
 
@@ -77,8 +83,39 @@ export function ChatPanel({
     if (requestId) void window.api.cancelChat(requestId)
   }
 
+  // The panel is pinned to the right edge, so dragging its left edge leftwards widens it.
+  const resize = (e: React.PointerEvent): void => {
+    const start = panel.current?.getBoundingClientRect().width ?? width
+    let next = start
+    dragFrom(
+      e,
+      (dx) => {
+        next = Math.round(clamp(start - dx, 360, window.innerWidth - 240))
+        setWidth(next)
+      },
+      () => next !== start && writeStored(WIDTH_KEY, next)
+    )
+  }
+
   return (
-    <aside className="chat-panel" aria-label="Chat with the assistant">
+    <aside
+      className="chat-panel"
+      ref={panel}
+      aria-label="Chat with the assistant"
+      style={{ width: `min(${width}px, 100vw)` }}
+    >
+      <div
+        className="chat-grip"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the chat panel"
+        title="Drag to resize · double-click to reset"
+        onPointerDown={resize}
+        onDoubleClick={() => {
+          setWidth(DEFAULT_WIDTH)
+          writeStored(WIDTH_KEY, null)
+        }}
+      />
       <header className="chat-header">
         <span className="chat-title">Ask</span>
         <span className="hint">{assistant?.hasKey ? assistant.label : 'Not connected'}</span>

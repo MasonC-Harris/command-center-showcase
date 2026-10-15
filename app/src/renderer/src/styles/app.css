@@ -1329,7 +1329,7 @@ code {
 
 /* ---------- Assistant ---------- */
 
-.assistant {
+.assistant-panel {
   display: flex;
   flex-direction: column;
   max-height: 46%;
@@ -1436,11 +1436,31 @@ button.link {
   z-index: 40;
   display: flex;
   flex-direction: column;
+  /* The width the user dragged to comes in as an inline style. */
   width: min(440px, 100vw);
+  max-width: calc(100vw - 240px);
   border-left: 1px solid var(--border-strong);
   background: var(--bg);
   box-shadow: -16px 0 40px var(--shadow);
   animation: chat-in 160ms var(--ease);
+}
+
+/* Drag the panel's left edge to make it wider; double-click puts it back. */
+.chat-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  z-index: 1;
+  width: 6px;
+  cursor: ew-resize;
+  touch-action: none;
+  transition: background var(--fast) var(--ease);
+}
+
+.chat-grip:hover,
+body.resizing .chat-grip {
+  background: var(--border-hover);
 }
 
 @keyframes chat-in {
@@ -2356,10 +2376,188 @@ button.link {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 240px;
+  /* Inline only; the height the user dragged to comes in as an inline style. */
+  max-height: 360px;
   overflow-y: auto;
   padding-top: 10px;
   border-top: 1px solid var(--border);
+}
+
+/* Drag bar under the conversation; double-click puts it back. */
+.brief-thread-grip {
+  position: relative;
+  height: 12px;
+  margin: -8px 0 -4px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.brief-thread-grip::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 40px;
+  height: 3px;
+  margin-left: -20px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  transition: background var(--fast) var(--ease);
+}
+
+.brief-thread-grip:hover::after,
+body.resizing .brief-thread-grip::after {
+  background: var(--border-hover);
+}
+
+/*
+ * Focus and full screen. The brief is lifted out of the grid into a portal on <body>: focus is a
+ * larger window over the app, which blurs behind it; full screen covers the whole window. Either
+ * way the brief, its steps and the conversation scroll as one, with the ask bar fixed below.
+ */
+.brief-slot {
+  pointer-events: none;
+}
+
+.brief-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+  backdrop-filter: blur(10px) saturate(0.85);
+  animation: fade-in 160ms var(--ease);
+}
+
+.brief-backdrop.full {
+  padding: 0;
+  background: var(--bg);
+  backdrop-filter: none;
+}
+
+.brief-window.greeting {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(1040px, calc(100vw - 64px));
+  height: min(840px, calc(100vh - 64px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  padding: 22px 0 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 32px 80px var(--shadow);
+  animation: brief-in 200ms var(--ease);
+}
+
+.brief-window.greeting.full {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
+
+@keyframes brief-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+.brief-window-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.brief-window > .brief-top,
+.brief-window-scroll,
+.brief-window .brief-ask,
+.brief-window > .chat-error {
+  padding-inline: 28px;
+}
+
+/* Long lines are hard to read: keep a centred column, with the scrollbar still at the edge. */
+.brief-window.full > .brief-top,
+.brief-window.full .brief-window-scroll,
+.brief-window.full .brief-ask,
+.brief-window.full > .chat-error {
+  padding-inline: max(32px, calc((100% - 1100px) / 2));
+}
+
+.brief-window .brief-thread {
+  max-height: none;
+  overflow: visible;
+  padding-top: 14px;
+}
+
+.brief-window .brief {
+  max-width: 72ch;
+  font-size: 15px;
+}
+
+.brief-window .brief-steps {
+  font-size: 14px;
+}
+
+.brief-window .chat-turn {
+  max-width: min(92%, 90ch);
+  font-size: 14.5px;
+  line-height: 1.65;
+}
+
+.brief-window.full .chat-turn {
+  font-size: 15px;
+}
+
+.brief-window .brief-ask .text-input,
+.brief-window .brief-ask .btn {
+  height: 38px;
+}
+
+.brief-window .brief-ask .text-input {
+  font-size: 14px;
+}
+
+.brief-window-grip {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 16px;
+  height: 16px;
+  border-bottom-right-radius: 9px;
+  background: linear-gradient(
+    135deg,
+    transparent 45%,
+    var(--border-hover) 45% 52%,
+    transparent 52% 66%,
+    var(--border-hover) 66% 73%,
+    transparent 73%
+  );
+  cursor: nwse-resize;
+  opacity: 0.6;
+  touch-action: none;
+}
+
+.brief-window-grip:hover {
+  opacity: 1;
+}
+
+/* While a panel is being dragged: one cursor everywhere and no text selection. */
+body.resizing,
+body.resizing * {
+  user-select: none;
+  cursor: inherit !important;
 }
 
 .brief-ask {
