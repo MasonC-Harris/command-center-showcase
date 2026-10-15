@@ -36,15 +36,17 @@ export function Settings({
   useEffect(load, [])
   useDataChanged(load)
 
-  const connect = async (provider: Provider): Promise<void> => {
+  /** Adds an account, or with `existing` signs that one in again. */
+  const connect = async (provider: Provider, existing?: Account): Promise<void> => {
     setConnecting(provider)
     setMessage('Finish signing in in your browser…')
     try {
       const account =
         provider === 'outlook'
           ? await window.api.connectOutlook()
-          : await window.api.connectGoogle()
-      setMessage(`Connected ${account.address}.`)
+          : await window.api.connectGoogle(existing?.id)
+      const known = existing ?? accounts.find((a) => a.id === account.id)
+      setMessage(`${known ? 'Reconnected' : 'Connected'} ${account.address}.`)
     } catch (err) {
       setMessage(errorText(err))
     } finally {
@@ -88,6 +90,7 @@ export function Settings({
 
   // Canvas has its own section below, so it is not listed with the mail accounts.
   const real = accounts.filter((a) => a.provider !== 'demo' && a.provider !== 'canvas')
+  const googleCount = real.filter((a) => a.provider === 'google').length
   // Connecting Canvas alone also clears the demo data, so "demo" means every account is demo.
   const isDemo = accounts.length > 0 && accounts.every((a) => a.provider === 'demo')
 
@@ -147,7 +150,7 @@ export function Settings({
                     onClick={() =>
                       a.provider === 'icloud'
                         ? setIcloudForm({ address: a.address, password: '' })
-                        : connect(a.provider)
+                        : connect(a.provider, a)
                     }
                   >
                     Reconnect
@@ -230,7 +233,11 @@ export function Settings({
               disabled={connecting !== null || !sync?.googleClientConfigured}
               onClick={() => connect('google')}
             >
-              {connecting === 'google' ? 'Waiting for Google…' : 'Connect Google'}
+              {connecting === 'google'
+                ? 'Waiting for Google…'
+                : googleCount > 0
+                  ? 'Add Google account'
+                  : 'Connect Google'}
             </button>
             <button
               className="btn"
@@ -255,10 +262,19 @@ export function Settings({
             )}
             {message && <span className="muted">{message}</span>}
           </div>
+          {connecting === 'google' && (
+            <p className="muted">
+              Pick the account in Google&apos;s window. If Google says access is blocked, that
+              address isn&apos;t a test user on your OAuth consent screen yet: add it in Google
+              Cloud Console, then press Cancel and try again.
+            </p>
+          )}
           <p className="fine-print">
             Read-only access. Tokens are encrypted with Windows (DPAPI) and stored on this PC only.
-            While the Google app is in testing mode, Google expires its sign-ins after 7 days and
-            you&apos;ll be asked to reconnect. Outlook sign-ins last 90 days and renew with use.
+            Connect as many Gmail accounts as you like; each syncs on its own and can be shown alone
+            from the sidebar. While the Google app is in testing mode, only addresses listed as test
+            users can sign in, and Google expires sign-ins after 7 days so you&apos;ll be asked to
+            reconnect. Outlook sign-ins last 90 days and renew with use.
           </p>
         </div>
       </section>

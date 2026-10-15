@@ -2,19 +2,21 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Account, AccountScope, ChatTurn } from '@shared/types'
 import { ChatPanel } from './components/ChatPanel'
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { Icon, type IconName } from './components/Icon'
-import { useSyncStatus } from './hooks'
+import { useSyncStatus, useUnseenErrors } from './hooks'
 import { formatBinding, formatCompact, loadBindings, useBindings, useShortcuts } from './shortcuts'
 import { Calendar } from './views/Calendar'
 import { accountColors } from './accountColors'
 import { Inbox } from './views/Inbox'
 import { Settings } from './views/Settings'
 import { Finance } from './views/Finance'
+import { Logs } from './views/Logs'
 import { Tasks } from './views/Tasks'
 import { Today } from './views/Today'
 import { useTodayData } from './useTodayData'
 
-type ViewId = 'today' | 'inbox' | 'calendar' | 'tasks' | 'finance' | 'settings'
+type ViewId = 'today' | 'inbox' | 'calendar' | 'tasks' | 'finance' | 'settings' | 'logs'
 
 const VIEWS: { id: ViewId; label: string; icon: IconName; phase?: string }[] = [
   { id: 'today', label: 'Today', icon: 'grid' },
@@ -22,7 +24,8 @@ const VIEWS: { id: ViewId; label: string; icon: IconName; phase?: string }[] = [
   { id: 'calendar', label: 'Calendar', icon: 'calendar' },
   { id: 'tasks', label: 'Tasks', icon: 'tasks' },
   { id: 'finance', label: 'Finance', icon: 'wallet' },
-  { id: 'settings', label: 'Settings', icon: 'settings' }
+  { id: 'settings', label: 'Settings', icon: 'settings' },
+  { id: 'logs', label: 'Logs', icon: 'bug' }
 ]
 
 const NAV_ITEM_STEP = 34 // item height (32) + gap (2)
@@ -57,6 +60,7 @@ function App(): React.JSX.Element {
     }
   }, [])
   const sync = useSyncStatus()
+  const unseenErrors = useUnseenErrors(view === 'logs')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   // Chat history lives here so closing the panel doesn't lose it; it's gone when the app quits.
@@ -168,7 +172,7 @@ function App(): React.JSX.Element {
         id: 'connect-google',
         label: 'Connect Google account',
         icon: 'plus',
-        keywords: 'add gmail account sign in login reconnect',
+        keywords: 'add another gmail account multiple second sign in login reconnect',
         run: () => {
           setView('settings')
           void window.api.connectGoogle().catch(() => undefined)
@@ -187,6 +191,13 @@ function App(): React.JSX.Element {
         icon: 'external',
         keywords: 'web events',
         run: () => window.open('https://calendar.google.com/', '_blank')
+      },
+      {
+        id: 'log-folder',
+        label: 'Open log folder',
+        icon: 'bug',
+        keywords: 'debug errors logs file explorer report',
+        run: () => void window.api.openLogFolder()
       },
       {
         id: 'reload',
@@ -270,6 +281,16 @@ function App(): React.JSX.Element {
               Ask
             </button>
             {sync?.syncing && <span className="pill">Syncing…</span>}
+            {unseenErrors > 0 && (
+              <button
+                className="pill pill-alert"
+                onClick={() => goTo('logs')}
+                title="Open the Logs view"
+              >
+                <Icon name="bug" size={12} />
+                {unseenErrors === 1 ? '1 new error' : `${unseenErrors} new errors`}
+              </button>
+            )}
             {data?.accounts.some((a) => a.status === 'error') && (
               <button className="pill pill-alert" onClick={() => setView('settings')}>
                 Reconnect needed
@@ -313,41 +334,45 @@ function App(): React.JSX.Element {
         </header>
 
         <div className="content">
-          {error && <div className="placeholder">Couldn&apos;t load data: {error}</div>}
-          {!error && view === 'today' && data && (
-            <Today
-              data={data}
-              scope={scope}
-              briefTurns={briefTurns}
-              setBriefTurns={setBriefTurns}
-              onTaskToggle={toggleTask}
-              onOpenEmail={openEmail}
-              onReload={() => void reload()}
-              onConnectCanvas={openCanvasSettings}
-            />
-          )}
-          {view === 'inbox' && (
-            <Inbox
-              key={inboxQuery.nonce}
-              scope={scope}
-              initialQuery={inboxQuery.text}
-              initialOpenId={inboxQuery.openId ?? null}
-            />
-          )}
-          {view === 'calendar' && <Calendar scope={scope} accounts={accounts} />}
-          {view === 'tasks' && <Tasks onOpenEmail={openEmail} />}
-          {view === 'settings' && (
-            <Settings focus={settingsFocus} onFocused={() => setSettingsFocus(null)} />
-          )}
-          {view === 'finance' && <Finance onOpenEmail={openEmail} />}
-          {active.phase && (
-            <div className="placeholder">
-              <div>
-                <h2>{active.label}</h2>
-                Coming in {active.phase}.
+          {/* Keyed by view, so moving to another view clears a crashed one. */}
+          <ErrorBoundary key={view} onShowLogs={() => goTo('logs')}>
+            {error && <div className="placeholder">Couldn&apos;t load data: {error}</div>}
+            {!error && view === 'today' && data && (
+              <Today
+                data={data}
+                scope={scope}
+                briefTurns={briefTurns}
+                setBriefTurns={setBriefTurns}
+                onTaskToggle={toggleTask}
+                onOpenEmail={openEmail}
+                onReload={() => void reload()}
+                onConnectCanvas={openCanvasSettings}
+              />
+            )}
+            {view === 'inbox' && (
+              <Inbox
+                key={inboxQuery.nonce}
+                scope={scope}
+                initialQuery={inboxQuery.text}
+                initialOpenId={inboxQuery.openId ?? null}
+              />
+            )}
+            {view === 'calendar' && <Calendar scope={scope} accounts={accounts} />}
+            {view === 'tasks' && <Tasks onOpenEmail={openEmail} />}
+            {view === 'settings' && (
+              <Settings focus={settingsFocus} onFocused={() => setSettingsFocus(null)} />
+            )}
+            {view === 'finance' && <Finance onOpenEmail={openEmail} />}
+            {view === 'logs' && <Logs />}
+            {active.phase && (
+              <div className="placeholder">
+                <div>
+                  <h2>{active.label}</h2>
+                  Coming in {active.phase}.
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </ErrorBoundary>
         </div>
       </main>
 

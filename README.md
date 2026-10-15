@@ -7,7 +7,7 @@ A local-first desktop app that puts mail, calendar, school and money-from-email 
 ## What it does
 
 - **Unified inbox** across Outlook (Microsoft Graph), any number of Gmail accounts (Gmail API) and iCloud Mail (IMAP, read-only with an app-specific password). Mail can be hidden locally, one at a time or all at once, without touching the provider.
-- **Today screen** that answers "what needs my attention right now": daily brief, priority mail, threads waiting on a reply, next events, tasks, assignments, and a schedule strip. The brief comes either as the built-in summary or as **concrete next steps** written by the assistant, and has a bar underneath for asking follow-up questions about your day without leaving the screen.
+- **Today screen** that answers "what needs my attention right now": daily brief, priority mail, threads waiting on a reply, next events, tasks, assignments, and a schedule strip. The brief comes either as the built-in summary or as **concrete next steps** written by the assistant, and has a bar underneath for asking follow-up questions about your day without leaving the screen. Asking opens the brief in a larger focus window over the blurred app, which can go full screen or be resized by dragging its corner.
 - **School assignments from Canvas**, using an access token you create yourself: what is due **today, in the next 7 days, or in the next 30 days**, with the timeframe switchable on the tile and remembered. Overdue work is kept in its own group, Canvas's own "handed in" and "missing" state is shown, and you can tick an item off locally without touching Canvas.
 - **Auto-classification** of new mail by priority, category and "needs reply", using a hosted classifier behind a swappable interface. Low-confidence mail goes to a Review tab and your corrections are stored.
 - **Assistant** on the AI provider of your choice — **Claude, ChatGPT, Gemini, Groq or OpenRouter** — to summarize an email, draft a reply, or turn it into a task, only when you press the button. Connect any of them with a key, pick the model, and switch between them at any time; drafts are never sent from the app, and every AI action is logged.
@@ -15,6 +15,7 @@ A local-first desktop app that puts mail, calendar, school and money-from-email 
 - **Tasks and reminders**, plus a **Finance** view: bills, subscriptions and receipts pulled out of mail (the scan must quote evidence that money actually moved, so offers and gift-card promos are rejected), one-click adding from bill-like emails, hand-entered account balances, and **API usage** tracking with spend and remaining credit for the AI services.
 - **Command palette** (`Ctrl+K`) to search mail and events and run any action. All shortcuts are rebindable.
 - **Themes**: six palettes (dark, light, midnight blue, deep forest, light forest, ember) plus a custom one where you pick the base and the accent. Applies instantly and is remembered, including the window's own background colour.
+- **Logs** view (`Ctrl+7`) for debugging: failed syncs and sign-ins, buttons whose action failed, uncaught errors and crashes in either process, each with its stack trace. A top-bar alert counts errors you haven't looked at yet, the log survives restarts, and it can be filtered, copied, or opened as a file. It stays on your PC.
 - Tray icon, daily database backups, and read-only mail access by default.
 
 | Inbox | Calendar |
@@ -65,7 +66,7 @@ npm run dev
 
 To connect real accounts you need your own OAuth clients, because this project is not verified by Google or Microsoft:
 
-- **Google:** create a Desktop OAuth client with the Gmail and Calendar APIs enabled and save it as `client_secret_google.json` in the project root (it is gitignored).
+- **Google:** create a Desktop OAuth client with the Gmail and Calendar APIs enabled and save it as `client_secret_google.json` in the project root (it is gitignored). Press **Add Google account** in Settings once per Gmail address; each one syncs on its own and shows up in the sidebar's account switcher. While the OAuth app is in testing mode, add every address you want to connect under **OAuth consent screen → Test users**, or Google blocks the sign-in.
 - **Microsoft:** register an Azure app for Microsoft Graph and set `MS_CLIENT_ID` to its client ID.
 - **Classifier:** paste a TypeSafe key in Settings.
 - **Assistant:** in Settings → Assistant, press Connect on Claude, ChatGPT, Gemini, Groq or OpenRouter. That opens the provider's API-keys page in your browser; sign in, create a key, and paste it back. Keys are checked before they are stored, and the model list comes from the provider, so it stays current as models ship. Note that a Claude Pro, ChatGPT Plus or Gemini Advanced subscription does **not** cover API use — none of these providers exposes an OAuth flow a third-party desktop app can use, so programmatic calls are billed per token on a separate API account.

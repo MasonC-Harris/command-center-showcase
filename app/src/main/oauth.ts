@@ -10,6 +10,9 @@ const SIGN_IN_TIMEOUT_MS = 5 * 60_000
 /** The account's refresh token is invalid or missing; the user has to sign in again. */
 export class ReauthRequiredError extends Error {}
 
+/** The user cancelled or declined the sign-in. Not a failure, so the debug log files it as info. */
+export class SignInCancelledError extends Error {}
+
 /** Rejects the sign-in currently waiting on the browser, if any. */
 let cancelPending: (() => void) | null = null
 
@@ -48,7 +51,7 @@ export async function browserSignIn(
       const timer = setTimeout(() => reject(new Error('Sign-in timed out.')), SIGN_IN_TIMEOUT_MS)
       ownCancel = () => {
         clearTimeout(timer)
-        reject(new Error('Sign-in was cancelled.'))
+        reject(new SignInCancelledError('Sign-in was cancelled.'))
       }
       cancelPending = ownCancel
       server.on('request', (req, res) => {
@@ -72,9 +75,9 @@ export async function browserSignIn(
         if (error) {
           finish('Sign-in was cancelled. You can close this tab.')
           reject(
-            new Error(
-              error === 'access_denied' ? 'Sign-in was cancelled.' : `Sign-in failed: ${error}`
-            )
+            error === 'access_denied'
+              ? new SignInCancelledError('Sign-in was cancelled.')
+              : new Error(`Sign-in failed: ${error}`)
           )
           return
         }

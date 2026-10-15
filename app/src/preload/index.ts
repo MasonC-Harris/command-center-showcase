@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC, type ChatTaskAction, type CommandCenterApi } from '../shared/types'
+import { IPC, type ChatTaskAction, type CommandCenterApi, type LogEntry } from '../shared/types'
 
 /**
  * One streaming assistant call. Reply text and the cards for tasks or events it created arrive on
@@ -48,7 +48,7 @@ const api: CommandCenterApi = {
   getEventsRange: (start, end, scope) => ipcRenderer.invoke(IPC.getEventsRange, start, end, scope),
   listAccounts: () => ipcRenderer.invoke(IPC.listAccounts),
   getSyncStatus: () => ipcRenderer.invoke(IPC.getSyncStatus),
-  connectGoogle: () => ipcRenderer.invoke(IPC.connectGoogle),
+  connectGoogle: (reconnectId) => ipcRenderer.invoke(IPC.connectGoogle, reconnectId ?? null),
   connectOutlook: () => ipcRenderer.invoke(IPC.connectOutlook),
   connectIcloud: (address, appPassword) =>
     ipcRenderer.invoke(IPC.connectIcloud, address, appPassword),
@@ -118,6 +118,15 @@ const api: CommandCenterApi = {
     const listener = (): void => callback()
     ipcRenderer.on(IPC.dataChanged, listener)
     return () => ipcRenderer.removeListener(IPC.dataChanged, listener)
+  },
+  getLogs: () => ipcRenderer.invoke(IPC.getLogs),
+  clearLogs: () => ipcRenderer.invoke(IPC.clearLogs),
+  openLogFolder: () => ipcRenderer.invoke(IPC.openLogFolder),
+  reportError: (message, detail) => ipcRenderer.invoke(IPC.reportError, message, detail),
+  onLog: (callback) => {
+    const listener = (_: unknown, entry: LogEntry): void => callback(entry)
+    ipcRenderer.on(IPC.logAdded, listener)
+    return () => ipcRenderer.removeListener(IPC.logAdded, listener)
   }
 }
 

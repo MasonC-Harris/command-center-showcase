@@ -104,6 +104,14 @@ import {
   startedAtLogin
 } from './system'
 import { getKeybindings, setKeybindings } from './keybindings'
+import {
+  clearLogs,
+  getLogs,
+  logError,
+  openLogFolder,
+  reportRendererError,
+  startLogging
+} from './logs'
 
 // Same data folder for dev runs and the installed app, so both share the database and sign-in.
 app.setPath('userData', process.env.CC_USER_DATA ?? join(app.getPath('appData'), 'command-center'))
@@ -113,6 +121,8 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
   process.exit(0)
 }
+
+startLogging()
 
 let mainWindow: BrowserWindow | null = null
 
@@ -234,12 +244,20 @@ function registerIpc(): void {
       channel: string,
       fn: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown // eslint-disable-line @typescript-eslint/no-explicit-any
     ): void =>
-      handleRaw(channel, (event, ...args) => {
+      handleRaw(channel, async (event, ...args) => {
         const frame = event.senderFrame
         if (!frame || frame.parent !== null || !isAppUrl(frame.url)) {
-          throw new Error('Blocked: request did not come from Command Center.')
+          const blocked = new Error('Blocked: request did not come from Command Center.')
+          logError(channel, blocked)
+          throw blocked
         }
-        return fn(event, ...args)
+        // The view that called shows the error too; the log keeps it, with the stack, for later.
+        try {
+          return await fn(event, ...args)
+        } catch (err) {
+          logError(channel, err)
+          throw err
+        }
       })
   }
   const scopeArg = (scope: unknown): string | null => (typeof scope === 'string' ? scope : null)
@@ -292,7 +310,9 @@ function registerIpc(): void {
   })
   ipc.handle(IPC.listAccounts, () => listAccounts())
   ipc.handle(IPC.getSyncStatus, () => getSyncStatus())
-  ipc.handle(IPC.connectGoogle, () => connectGoogle())
+  ipc.handle(IPC.connectGoogle, (_, reconnectId: unknown) =>
+    connectGoogle(typeof reconnectId === 'string' ? reconnectId : undefined)
+  )
   ipc.handle(IPC.connectOutlook, () => connectOutlook())
   ipc.handle(IPC.connectIcloud, (_, address: string, appPassword: string) =>
     connectIcloud(String(address ?? ''), String(appPassword ?? ''))
@@ -406,6 +426,12 @@ function registerIpc(): void {
   ipc.handle(IPC.setKeepInTray, (_, enabled: unknown) => setKeepInTray(Boolean(enabled)))
   ipc.handle(IPC.getKeybindings, () => getKeybindings())
   ipc.handle(IPC.setKeybindings, (_, overrides: unknown) => setKeybindings(overrides))
+  ipc.handle(IPC.getLogs, () => getLogs())
+  ipc.handle(IPC.clearLogs, () => clearLogs())
+  ipc.handle(IPC.openLogFolder, () => openLogFolder())
+  ipc.handle(IPC.reportError, (_, message: unknown, detail: unknown) =>
+    reportRendererError(message, detail)
+  )
 }
 
 app.whenReady().then(() => {
